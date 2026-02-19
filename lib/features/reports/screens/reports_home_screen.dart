@@ -46,19 +46,13 @@ class ReportsHomeScreen extends StatelessWidget {
             const SizedBox(height: 4),
             const Text(
               'Kooba Warehouse A',
-              style: TextStyle(
-                color: AppTheme.textSecondary,
-                fontSize: 14,
-              ),
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
             ),
             const SizedBox(height: 24),
             Row(
               children: const [
                 Expanded(
-                  child: _MetricCard(
-                    label: "TODAY'S MOVES",
-                    value: '142',
-                  ),
+                  child: _MetricCard(label: "TODAY'S MOVES", value: '142'),
                 ),
                 SizedBox(width: 12),
                 Expanded(
@@ -77,7 +71,7 @@ class ReportsHomeScreen extends StatelessWidget {
               icon: Icons.arrow_downward_rounded,
               iconBg: const Color(0xFF104F2D),
               onTap: () {
-                context.go(AppConstants.stockReportRoute);
+                context.push(AppConstants.stockReportRoute);
               },
             ),
             const SizedBox(height: 12),
@@ -87,7 +81,7 @@ class ReportsHomeScreen extends StatelessWidget {
               icon: Icons.arrow_upward_rounded,
               iconBg: const Color(0xFF4E342E),
               onTap: () {
-                context.go(AppConstants.stockReportRoute);
+                context.push(AppConstants.stockReportRoute);
               },
             ),
             const SizedBox(height: 12),
@@ -97,7 +91,7 @@ class ReportsHomeScreen extends StatelessWidget {
               icon: Icons.bar_chart_rounded,
               iconBg: const Color(0xFF1A237E),
               onTap: () {
-                context.go(AppConstants.reportFiltersRoute);
+                context.push(AppConstants.reportFiltersRoute);
               },
             ),
             const SizedBox(height: 24),
@@ -298,5 +292,3 @@ class _ReportCard extends StatelessWidget {
     );
   }
 }
-
-

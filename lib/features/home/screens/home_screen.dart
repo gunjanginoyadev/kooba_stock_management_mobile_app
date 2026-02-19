@@ -30,29 +30,28 @@ class HomeScreen extends StatelessWidget {
           }
         },
       ),
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 16),
-            const Text(
-              'Stock Overview',
-              style: TextStyle(
-                color: AppTheme.textPrimary,
-                fontSize: 26,
-                fontWeight: FontWeight.w700,
-              ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 16),
+          const Text(
+            'Stock Overview',
+            style: TextStyle(
+              color: AppTheme.textPrimary,
+              fontSize: 26,
+              fontWeight: FontWeight.w700,
             ),
-            const SizedBox(height: 4),
-            const Text(
-              'Kooba Warehouse A',
-              style: TextStyle(
-                color: AppTheme.textSecondary,
-                fontSize: 14,
-              ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Kooba Warehouse A',
+            style: TextStyle(
+              color: AppTheme.textSecondary,
+              fontSize: 14,
             ),
-            const SizedBox(height: 20),
-            TextField(
+          ),
+          const SizedBox(height: 20),
+          TextField(
               decoration: InputDecoration(
                 hintText: 'Search items…',
                 prefixIcon: const Icon(
@@ -68,8 +67,8 @@ class HomeScreen extends StatelessWidget {
               ),
               style: const TextStyle(color: AppTheme.textPrimary),
             ),
-            const SizedBox(height: 16),
-            Row(
+          const SizedBox(height: 16),
+          Row(
               children: const [
                 Expanded(
                   child: _SummaryChip(
@@ -95,59 +94,66 @@ class HomeScreen extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 24),
-            const _SectionHeader(
+          const SizedBox(height: 16),
+          // Everything below this point scrolls, header stays fixed.
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 8),
+                  const _SectionHeader(
               title: 'Out of Stock',
               color: Color(0xFFFF5252),
             ),
-            const _StockTile(
+                  const _StockTile(
               name: 'Leather – Thin',
               statusLabel: 'Out of Stock',
               statusColor: Color(0xFFFF5252),
               quantityLabel: '0 units',
             ),
-            const _StockTile(
+                  const _StockTile(
               name: 'Fevicol 5kg',
               statusLabel: 'Out of Stock',
               statusColor: Color(0xFFFF5252),
               quantityLabel: '0 units',
             ),
-            const SizedBox(height: 16),
-            const _SectionHeader(
+                  const SizedBox(height: 16),
+                  const _SectionHeader(
               title: 'Low Stock (Below 10)',
               color: Color(0xFFFFC107),
             ),
-            const _StockTile(
+                  const _StockTile(
               name: 'M12 Steel Bolt',
               statusLabel: 'Low Stock',
               statusColor: Color(0xFFFFC107),
               quantityLabel: '8 units',
             ),
-            const _StockTile(
+                  const _StockTile(
               name: 'Hex Nut 10mm',
               statusLabel: 'Low Stock',
               statusColor: Color(0xFFFFC107),
               quantityLabel: '6 units',
             ),
-            const SizedBox(height: 16),
-            const _SectionHeader(
+                  const SizedBox(height: 16),
+                  const _SectionHeader(
               title: 'Normal Stock',
               color: Color(0xFF3DDC84),
             ),
-            const _StockTile(
+                  const _StockTile(
               name: 'Hammer Blade',
               statusLabel: 'In Stock',
               statusColor: Color(0xFF3DDC84),
               quantityLabel: '120 units',
             ),
-            const _StockTile(
+                  const _StockTile(
               name: 'Buff Board',
               statusLabel: 'In Stock',
               statusColor: Color(0xFF3DDC84),
               quantityLabel: '75 units',
             ),
-            const SizedBox(height: 24),
-            Row(
+                  const SizedBox(height: 24),
+                  Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text(
@@ -160,7 +166,7 @@ class HomeScreen extends StatelessWidget {
                 ),
                 TextButton(
                   onPressed: () {
-                    context.go(AppConstants.stockHistoryRoute);
+                    context.push(AppConstants.stockHistoryRoute);
                   },
                   child: const Text(
                     'View History',
@@ -172,8 +178,8 @@ class HomeScreen extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            Container(
+                  const SizedBox(height: 8),
+                  Container(
               decoration: BoxDecoration(
                 color: AppTheme.cardBackground,
                 borderRadius: BorderRadius.circular(20),
@@ -228,10 +234,13 @@ class HomeScreen extends StatelessWidget {
                   ),
                 ],
               ),
+              ),
+                  const SizedBox(height: 24),
+                ],
+              ),
             ),
-            const SizedBox(height: 24),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
