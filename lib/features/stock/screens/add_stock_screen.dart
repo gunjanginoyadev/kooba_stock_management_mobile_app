@@ -6,18 +6,20 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_primary_button.dart';
 import '../../../core/widgets/app_scaffold.dart';
 
-// ── Sample special stock items ───────────────────────────────────────────────
+// ── Sample special stock items with variants ───────────────────────────────────
 class _SpecialStockItem {
   final String name;
   final String sku;
   final String category;
   final int currentQty;
+  final List<String> variants;
 
   const _SpecialStockItem({
     required this.name,
     required this.sku,
     required this.category,
     required this.currentQty,
+    required this.variants,
   });
 }
 
@@ -27,24 +29,28 @@ const List<_SpecialStockItem> _specialStocks = [
     sku: 'SKU-BB-12',
     category: 'Boards',
     currentQty: 34,
+    variants: ['4x8 ft', '4x10 ft', '6x8 ft', '6x10 ft'],
   ),
   _SpecialStockItem(
     name: 'Leather – Thin',
     sku: 'SKU-LT-01',
     category: 'Materials',
     currentQty: 0,
+    variants: ['Black', 'Brown', 'Tan', 'White'],
   ),
   _SpecialStockItem(
     name: 'Hammer Blade Pro',
     sku: 'SKU-HB-P',
     category: 'Tools',
     currentQty: 12,
+    variants: ['Standard', 'Heavy-duty', 'Left-hand'],
   ),
   _SpecialStockItem(
     name: 'Premium Foam XL',
     sku: 'SKU-PF-XL',
     category: 'Packaging',
     currentQty: 5,
+    variants: ['1" thick', '2" thick', '3" thick'],
   ),
 ];
 
@@ -63,10 +69,166 @@ class AddStockScreen extends StatefulWidget {
 
 class _AddStockScreenState extends State<AddStockScreen> {
   _StockType _stockType = _StockType.simple;
-  int _quantity = 12;
+  int _quantity = 1;
   _SpecialStockItem? _selectedSpecial;
+  String? _selectedVariant;
 
   void _increment(int by) => setState(() => _quantity += by);
+
+  bool get _canSave {
+    if (_quantity <= 0) return false;
+    if (_stockType == _StockType.special) {
+      return _selectedSpecial != null && _selectedVariant != null;
+    }
+    return true; // Simple: no item picker yet, allow save with qty only
+  }
+
+  void _onSave() {
+    if (!_canSave) {
+      if (_quantity <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Enter a quantity greater than 0'),
+            backgroundColor: Color(0xFFE65100),
+          ),
+        );
+        return;
+      }
+      if (_stockType == _StockType.special && _selectedSpecial == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please select an item'),
+            backgroundColor: Color(0xFFE65100),
+          ),
+        );
+        return;
+      }
+      if (_stockType == _StockType.special && _selectedVariant == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please select a variant'),
+            backgroundColor: Color(0xFFE65100),
+          ),
+        );
+        return;
+      }
+    }
+    final itemLabel = _selectedSpecial != null && _selectedVariant != null
+        ? '${_selectedSpecial!.name} · $_selectedVariant'
+        : _selectedSpecial?.name;
+    context.push(
+      AppConstants.stockSuccessRoute,
+      extra: <String, dynamic>{
+        'type': 'in',
+        'itemName': itemLabel ?? _selectedSpecial?.name,
+        'quantity': _quantity,
+      },
+    );
+  }
+
+  void _showVariantPicker() {
+    final item = _selectedSpecial;
+    if (item == null || item.variants.isEmpty) return;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppTheme.cardBackground,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Select variant',
+                      style: TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      icon: const Icon(
+                        Icons.close,
+                        color: AppTheme.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  item.name,
+                  style: const TextStyle(
+                    color: AppTheme.textSecondary,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                ...item.variants.map((variant) {
+                  final isSelected = _selectedVariant == variant;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Material(
+                      color: isSelected
+                          ? AppTheme.primaryBlue.withOpacity(0.12)
+                          : AppTheme.darkBackground,
+                      borderRadius: BorderRadius.circular(14),
+                      child: InkWell(
+                        onTap: () {
+                          setState(() => _selectedVariant = variant);
+                          Navigator.of(ctx).pop();
+                        },
+                        borderRadius: BorderRadius.circular(14),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 14,
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  variant,
+                                  style: TextStyle(
+                                    color: isSelected
+                                        ? AppTheme.primaryBlue
+                                        : AppTheme.textPrimary,
+                                    fontSize: 15,
+                                    fontWeight: isSelected
+                                        ? FontWeight.w600
+                                        : FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                              if (isSelected)
+                                const Icon(
+                                  Icons.check_circle_rounded,
+                                  color: AppTheme.primaryBlue,
+                                  size: 22,
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   void _showSpecialStockPicker() {
     showModalBottomSheet(
@@ -120,7 +282,10 @@ class _AddStockScreenState extends State<AddStockScreen> {
                 final isSelected = _selectedSpecial == item;
                 return GestureDetector(
                   onTap: () {
-                    setState(() => _selectedSpecial = item);
+                    setState(() {
+                      _selectedSpecial = item;
+                      _selectedVariant = null;
+                    });
                     Navigator.of(ctx).pop();
                   },
                   child: AnimatedContainer(
@@ -232,15 +397,16 @@ class _AddStockScreenState extends State<AddStockScreen> {
       appBar: AppBar(
         backgroundColor: AppTheme.darkBackground,
         elevation: 0,
-        leading: TextButton(
+        leading: IconButton(
           onPressed: () => context.pop(),
-          child: const Text(
-            'Cancel',
-            style: TextStyle(color: AppTheme.textSecondary, fontSize: 16),
+          icon: const Icon(
+            Icons.arrow_back_ios_new_rounded,
+            color: AppTheme.textPrimary,
+            size: 22,
           ),
         ),
         title: const Text(
-          'Add Stock',
+          'Stock in',
           style: TextStyle(
             color: AppTheme.textPrimary,
             fontSize: 18,
@@ -248,23 +414,15 @@ class _AddStockScreenState extends State<AddStockScreen> {
           ),
         ),
         centerTitle: true,
-        actions: [
-          IconButton(
-            onPressed: () {},
-            icon: const Icon(
-              Icons.qr_code_scanner_rounded,
-              color: AppTheme.textSecondary,
-            ),
-          ),
-        ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SizedBox(height: 20),
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 20),
 
-          // ══ Stock Type Selector ══════════════════════════════════════
-          _SectionLabel('STOCK TYPE'),
+            // ══ Stock Type Selector ══════════════════════════════════════
+            _SectionLabel('STOCK TYPE'),
           const SizedBox(height: 10),
           Row(
             children: [
@@ -278,6 +436,7 @@ class _AddStockScreenState extends State<AddStockScreen> {
                   onTap: () => setState(() {
                     _stockType = _StockType.simple;
                     _selectedSpecial = null;
+                    _selectedVariant = null;
                   }),
                 ),
               ),
@@ -291,6 +450,7 @@ class _AddStockScreenState extends State<AddStockScreen> {
                   isSelected: _stockType == _StockType.special,
                   onTap: () => setState(() {
                     _stockType = _StockType.special;
+                    _selectedVariant = null;
                   }),
                 ),
               ),
@@ -392,7 +552,7 @@ class _AddStockScreenState extends State<AddStockScreen> {
             const SizedBox(height: 24),
           ],
 
-          // ══ Item search (for simple stock) ═══════════════════════════
+          // ══ Item search (for simple stock) – no variant ─══════════════
           if (_stockType == _StockType.simple) ...[
             _SectionLabel('SELECT ITEM'),
             const SizedBox(height: 10),
@@ -400,28 +560,64 @@ class _AddStockScreenState extends State<AddStockScreen> {
               icon: Icons.search,
               hint: 'Search by name or SKU...',
             ),
-            const SizedBox(height: 20),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: const [
-                Text(
-                  'Variant / Sub-category *',
-                  style: TextStyle(
-                    color: AppTheme.textPrimary,
-                    fontSize: 13,
-                    letterSpacing: 1.2,
+            const SizedBox(height: 24),
+          ],
+
+          // ══ Variant (for special stock only) ══════════════════════════
+          if (_stockType == _StockType.special) ...[
+            _SectionLabel('VARIANT / SUB-CATEGORY'),
+            const SizedBox(height: 10),
+            GestureDetector(
+              onTap: _selectedSpecial != null ? _showVariantPicker : null,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                decoration: BoxDecoration(
+                  color: AppTheme.cardBackground,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: _selectedVariant != null
+                        ? AppTheme.primaryBlue
+                        : AppTheme.borderColor,
+                    width: _selectedVariant != null ? 1.5 : 1,
                   ),
                 ),
-                Text(
-                  'Required',
-                  style: TextStyle(color: AppTheme.primaryBlue, fontSize: 12),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.unfold_more_rounded,
+                      color: _selectedVariant != null
+                          ? AppTheme.primaryBlue
+                          : AppTheme.textSecondary,
+                      size: 22,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        _selectedVariant ??
+                            (_selectedSpecial != null
+                                ? 'Select variant...'
+                                : 'Select an item first'),
+                        style: TextStyle(
+                          color: _selectedVariant != null
+                              ? AppTheme.textPrimary
+                              : AppTheme.textSecondary,
+                          fontSize: 14,
+                          fontWeight:
+                              _selectedVariant != null
+                                  ? FontWeight.w500
+                                  : FontWeight.normal,
+                        ),
+                      ),
+                    ),
+                    Icon(
+                      Icons.chevron_right_rounded,
+                      color: AppTheme.textSecondary,
+                      size: 22,
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            _DropdownLikeField(
-              icon: Icons.unfold_more_rounded,
-              hint: 'Select variant...',
+              ),
             ),
             const SizedBox(height: 24),
           ],
@@ -493,33 +689,31 @@ class _AddStockScreenState extends State<AddStockScreen> {
             ),
           ),
           const SizedBox(height: 8),
-          Expanded(
-            child: TextField(
-              maxLines: null,
-              expands: true,
-              decoration: InputDecoration(
-                hintText:
-                    'Add details about this batch (e.g., damaged box, supplier note)...',
-                filled: true,
-                fillColor: AppTheme.cardBackground,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  borderSide: const BorderSide(color: AppTheme.borderColor),
-                ),
+          TextField(
+            maxLines: 3,
+            decoration: InputDecoration(
+              hintText:
+                  'Add details about this batch (e.g., damaged box, supplier note)...',
+              filled: true,
+              fillColor: AppTheme.cardBackground,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: const BorderSide(color: AppTheme.borderColor),
               ),
-              style: const TextStyle(color: AppTheme.textPrimary),
             ),
+            style: const TextStyle(color: AppTheme.textPrimary),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 24),
 
           // ══ Save button ══════════════════════════════════════════════
           AppPrimaryButton(
-            label: 'Save Stock',
+            label: 'Save stock in',
             icon: Icons.download_rounded,
-            onPressed: () => context.push(AppConstants.stockSuccessRoute),
+            onPressed: _onSave,
           ),
-          const SizedBox(height: 16),
-        ],
+          const SizedBox(height: 24),
+          ],
+        ),
       ),
     );
   }

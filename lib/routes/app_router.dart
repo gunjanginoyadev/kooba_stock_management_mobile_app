@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/constants/app_constants.dart';
+import '../../core/theme/app_theme.dart';
+import '../../core/widgets/app_bottom_nav_bar.dart';
 import '../../features/auth/screens/email_verification_screen.dart';
 import '../../features/auth/screens/forgot_password_screen.dart';
 import '../../features/auth/screens/login_screen.dart';
@@ -52,18 +54,67 @@ class AppRouter {
         name: 'email-verification',
         builder: (context, state) => const EmailVerificationScreen(),
       ),
-      GoRoute(
-        path: AppConstants.homeRoute,
-        name: 'home',
-        builder: (context, state) => const HomeScreen(),
+      // Main app shell: bottom nav with 4 tabs (state preserved when switching)
+      StatefulShellRoute.indexedStack(
+        builder: (context, state, navigationShell) {
+          return Scaffold(
+            backgroundColor: AppTheme.darkBackground,
+            body: navigationShell,
+            bottomNavigationBar: AppBottomNavBar(
+              currentIndex: navigationShell.currentIndex,
+              onTap: (index) => navigationShell.goBranch(index),
+            ),
+          );
+        },
+        branches: [
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppConstants.homeRoute,
+                name: 'home',
+                pageBuilder: (context, state) => const NoTransitionPage(
+                  child: HomeScreen(),
+                ),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppConstants.stockHubRoute,
+                name: 'stock-hub',
+                pageBuilder: (context, state) => const NoTransitionPage(
+                  child: StockHubScreen(),
+                ),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppConstants.reportsHomeRoute,
+                name: 'reports-home',
+                pageBuilder: (context, state) => const NoTransitionPage(
+                  child: ReportsHomeScreen(),
+                ),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppConstants.profileRoute,
+                name: 'profile',
+                pageBuilder: (context, state) => const NoTransitionPage(
+                  child: ProfileScreen(),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
 
-      // Stock / home area
-      GoRoute(
-        path: AppConstants.stockHubRoute,
-        name: 'stock-hub',
-        builder: (context, state) => const StockHubScreen(),
-      ),
+      // Stock / home area (detail screens, full screen)
       GoRoute(
         path: AppConstants.addStockRoute,
         name: 'add-stock',
@@ -72,7 +123,11 @@ class AppRouter {
       GoRoute(
         path: AppConstants.stockSuccessRoute,
         name: 'stock-success',
-        builder: (context, state) => const StockSuccessScreen(),
+        builder: (context, state) => StockSuccessScreen(
+          extra: state.extra is Map<String, dynamic>
+              ? state.extra! as Map<String, dynamic>
+              : null,
+        ),
       ),
       GoRoute(
         path: AppConstants.manageItemsRoute,
@@ -114,11 +169,6 @@ class AppRouter {
 
       // Reports
       GoRoute(
-        path: AppConstants.reportsHomeRoute,
-        name: 'reports-home',
-        builder: (context, state) => const ReportsHomeScreen(),
-      ),
-      GoRoute(
         path: AppConstants.reportFiltersRoute,
         name: 'report-filters',
         builder: (context, state) => const ReportFiltersScreen(),
@@ -126,7 +176,9 @@ class AppRouter {
       GoRoute(
         path: AppConstants.stockReportRoute,
         name: 'stock-report',
-        builder: (context, state) => const StockReportScreen(),
+        builder: (context, state) => StockReportScreen(
+          reportType: state.extra is Map ? (state.extra as Map)['type'] as String? : null,
+        ),
       ),
       GoRoute(
         path: AppConstants.pdfPreviewRoute,
@@ -134,12 +186,6 @@ class AppRouter {
         builder: (context, state) => const PdfPreviewScreen(),
       ),
 
-      // Profile
-      GoRoute(
-        path: AppConstants.profileRoute,
-        name: 'profile',
-        builder: (context, state) => const ProfileScreen(),
-      ),
     ],
     errorBuilder: (context, state) => Scaffold(
       body: Center(

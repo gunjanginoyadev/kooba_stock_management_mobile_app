@@ -52,7 +52,7 @@ class _AddItemCategoryScreenState extends State<AddItemCategoryScreen> {
                   ),
                   const Spacer(),
                   const Text(
-                    'Add Item / Category',
+                    'Add item',
                     style: TextStyle(
                       color: AppTheme.textPrimary,
                       fontSize: 18,

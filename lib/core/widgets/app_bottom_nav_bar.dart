@@ -45,8 +45,8 @@ class AppBottomNavBar extends StatelessWidget {
             label: 'Reports',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.settings_outlined),
-            label: 'Settings',
+            icon: Icon(Icons.person_outline_rounded),
+            label: 'Profile',
           ),
         ],
       ),
