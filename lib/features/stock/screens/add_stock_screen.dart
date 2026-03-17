@@ -5,6 +5,7 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_primary_button.dart';
 import '../../../core/widgets/app_scaffold.dart';
+import '../../../core/widgets/toast_helper.dart';
 
 // ── Sample special stock items with variants ───────────────────────────────────
 class _SpecialStockItem {
@@ -86,30 +87,15 @@ class _AddStockScreenState extends State<AddStockScreen> {
   void _onSave() {
     if (!_canSave) {
       if (_quantity <= 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Enter a quantity greater than 0'),
-            backgroundColor: Color(0xFFE65100),
-          ),
-        );
+        ToastHelper.error(context, 'Enter a quantity greater than 0');
         return;
       }
       if (_stockType == _StockType.special && _selectedSpecial == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Please select an item'),
-            backgroundColor: Color(0xFFE65100),
-          ),
-        );
+        ToastHelper.error(context, 'Please select an item');
         return;
       }
       if (_stockType == _StockType.special && _selectedVariant == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Please select a variant'),
-            backgroundColor: Color(0xFFE65100),
-          ),
-        );
+        ToastHelper.error(context, 'Please select a variant');
         return;
       }
     }

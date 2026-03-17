@@ -33,6 +33,11 @@ migrate_working_dir/
 /build/
 /coverage/
 
+# Environment / secrets (do not commit real Supabase keys)
+.env
+.env.local
+*.env
+
 # Symbolication related
 app.*.symbols
 

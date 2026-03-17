@@ -5,6 +5,7 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_primary_button.dart';
 import '../../../core/widgets/app_scaffold.dart';
+import '../../../core/widgets/toast_helper.dart';
 
 // ── Demo data: categories and items for stock out ─────────────────────────────
 class _UsageItem {
@@ -98,43 +99,23 @@ class _StockUsageScreenState extends State<StockUsageScreen> {
   void _onSave() {
     if (!_formKey.currentState!.validate()) return;
     if (_quantity <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Enter a quantity greater than 0'),
-          backgroundColor: Color(0xFFE65100),
-        ),
-      );
+      ToastHelper.error(context, 'Enter a quantity greater than 0');
       return;
     }
     String? itemLabel;
     if (_useNormalItem) {
       if (_selectedNormalItem == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Please select an item'),
-            backgroundColor: Color(0xFFE65100),
-          ),
-        );
+        ToastHelper.error(context, 'Please select an item');
         return;
       }
       itemLabel = _selectedNormalItem!.name;
     } else {
       if (_selectedCategory == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Please select a category'),
-            backgroundColor: Color(0xFFE65100),
-          ),
-        );
+        ToastHelper.error(context, 'Please select a category');
         return;
       }
       if (_selectedItem == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Please select an item'),
-            backgroundColor: Color(0xFFE65100),
-          ),
-        );
+        ToastHelper.error(context, 'Please select an item');
         return;
       }
       itemLabel = '${_selectedItem!.name} (${_selectedCategory!.name})';

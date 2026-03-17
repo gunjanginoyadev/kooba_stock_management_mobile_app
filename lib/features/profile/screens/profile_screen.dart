@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_scaffold.dart';
+import '../../../core/widgets/toast_helper.dart';
 import '../../auth/bloc/auth_bloc.dart';
 import '../../auth/bloc/auth_event.dart';
 
@@ -32,12 +33,7 @@ class ProfileScreen extends StatelessWidget {
             Center(
               child: GestureDetector(
                 onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Change profile picture'),
-                      backgroundColor: AppTheme.primaryBlue,
-                    ),
-                  );
+                  ToastHelper.info(context, 'Change profile picture');
                 },
                 child: Stack(
                   children: [
@@ -78,12 +74,7 @@ class ProfileScreen extends StatelessWidget {
               label: 'Name',
               value: 'Jane Doe',
               onTap: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Edit name'),
-                    backgroundColor: AppTheme.primaryBlue,
-                  ),
-                );
+                ToastHelper.info(context, 'Edit name');
               },
             ),
             const SizedBox(height: 8),

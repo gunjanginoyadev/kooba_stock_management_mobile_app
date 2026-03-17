@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+
+import '../../core/auth/auth_state_notifier.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_bottom_nav_bar.dart';
@@ -26,9 +28,31 @@ import '../../features/stock/screens/stock_success_screen.dart';
 import '../../features/stock/screens/stock_usage_screen.dart';
 
 class AppRouter {
-  static final GoRouter router = GoRouter(
-    initialLocation: AppConstants.splashRoute,
-    routes: [
+  static GoRouter createRouter(AuthStateNotifier authNotifier) {
+    return GoRouter(
+      initialLocation: AppConstants.splashRoute,
+      refreshListenable: authNotifier,
+      redirect: (BuildContext context, GoRouterState state) {
+        final location = state.matchedLocation;
+        final isAuth = authNotifier.isAuthenticated;
+
+        if (isAuth == null) return null;
+
+        final isPublicRoute = location == AppConstants.splashRoute ||
+            location == AppConstants.loginRoute ||
+            location == AppConstants.registerRoute ||
+            location == AppConstants.forgotPasswordRoute ||
+            location == AppConstants.emailVerificationRoute;
+
+        if (!isAuth && !isPublicRoute) return AppConstants.loginRoute;
+        if (isAuth && (location == AppConstants.loginRoute ||
+            location == AppConstants.registerRoute ||
+            location == AppConstants.forgotPasswordRoute)) {
+          return AppConstants.homeRoute;
+        }
+        return null;
+      },
+      routes: [
       GoRoute(
         path: AppConstants.splashRoute,
         name: 'splash',
@@ -192,6 +216,7 @@ class AppRouter {
         child: Text('Error: ${state.error}'),
       ),
     ),
-  );
+    );
+  }
 }
 

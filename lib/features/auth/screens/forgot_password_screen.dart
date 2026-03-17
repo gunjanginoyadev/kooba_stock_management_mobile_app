@@ -8,6 +8,7 @@ import '../../../core/widgets/app_auth_shell.dart';
 import '../../../core/widgets/app_logo_header.dart';
 import '../../../core/widgets/app_primary_button.dart';
 import '../../../core/widgets/app_text_field.dart';
+import '../../../core/widgets/toast_helper.dart';
 import '../bloc/auth_bloc.dart';
 import '../bloc/auth_event.dart';
 import '../bloc/auth_state.dart';
@@ -42,19 +43,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     return BlocListener<AuthBloc, AppAuthState>(
       listener: (context, state) {
         if (state is PasswordResetSent) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Password reset email sent.'),
-            ),
-          );
+          ToastHelper.success(context, 'Password reset email sent.');
           context.go(AppConstants.loginRoute);
         } else if (state is AuthError) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(state.message),
-              backgroundColor: Colors.red,
-            ),
-          );
+          ToastHelper.error(context, state.message);
         }
       },
       child: AppAuthShell(

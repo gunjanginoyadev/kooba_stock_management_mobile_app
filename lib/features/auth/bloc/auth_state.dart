@@ -1,5 +1,4 @@
 import 'package:equatable/equatable.dart';
-// import 'package:supabase_flutter/supabase_flutter.dart';
 
 abstract class AppAuthState extends Equatable {
   const AppAuthState();
@@ -17,15 +16,21 @@ class AuthLoading extends AppAuthState {
 }
 
 class AuthAuthenticated extends AppAuthState {
-  // final User user;
-  const AuthAuthenticated(/* this.user */);
-
-  // @override
-  // List<Object?> get props => [user];
+  const AuthAuthenticated();
 }
 
 class AuthUnauthenticated extends AppAuthState {
   const AuthUnauthenticated();
+}
+
+/// Shown after sign-up when Supabase requires email confirmation.
+class AuthEmailConfirmationRequired extends AppAuthState {
+  final String email;
+
+  const AuthEmailConfirmationRequired(this.email);
+
+  @override
+  List<Object?> get props => [email];
 }
 
 class AuthError extends AppAuthState {

@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_primary_button.dart';
 import '../../../core/widgets/app_scaffold.dart';
+import '../../../core/widgets/toast_helper.dart';
 
 class PdfPreviewScreen extends StatelessWidget {
   const PdfPreviewScreen({super.key});
@@ -89,12 +90,7 @@ class PdfPreviewScreen extends StatelessWidget {
             width: double.infinity,
             child: OutlinedButton.icon(
               onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Share opened'),
-                    backgroundColor: AppTheme.primaryBlue,
-                  ),
-                );
+                ToastHelper.info(context, 'Share opened');
               },
               icon: const Icon(Icons.share_rounded, size: 20),
               label: const Text('Share'),
