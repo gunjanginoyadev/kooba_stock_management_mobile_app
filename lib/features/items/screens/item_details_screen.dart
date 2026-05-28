@@ -4,12 +4,53 @@ import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_scaffold.dart';
+import '../models/item_models.dart';
+import '../repository/items_repository.dart';
 
-class ItemDetailsScreen extends StatelessWidget {
+class ItemDetailsScreen extends StatefulWidget {
   const ItemDetailsScreen({super.key});
 
   @override
+  State<ItemDetailsScreen> createState() => _ItemDetailsScreenState();
+}
+
+class _ItemDetailsScreenState extends State<ItemDetailsScreen> {
+  final _repo = ItemsRepository();
+  bool _loading = true;
+  StockSheetItem? _item;
+  List<StockEntryV2> _entries = const [];
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final extra = GoRouterState.of(context).extra;
+    final itemId = extra is Map ? extra['itemId'] as String? : null;
+    _load(itemId);
+  }
+
+  Future<void> _load(String? itemId) async {
+    if (itemId == null || itemId.isEmpty) {
+      setState(() {
+        _loading = false;
+        _item = null;
+        _entries = const [];
+      });
+      return;
+    }
+    setState(() => _loading = true);
+    final item = await _repo.getStockSheetItemById(itemId);
+    final entries = await _repo.getStockEntries(limit: 10, itemId: itemId);
+    if (!mounted) return;
+    setState(() {
+      _item = item;
+      _entries = entries;
+      _loading = false;
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final item = _item;
     return AppScaffold(
       appBar: AppBar(
         backgroundColor: AppTheme.darkBackground,
@@ -44,13 +85,31 @@ class ItemDetailsScreen extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 8),
-            _ItemHeaderCard(),
+            if (_loading)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 40),
+                child: Center(
+                  child: CircularProgressIndicator(color: AppTheme.primaryBlue),
+                ),
+              )
+            else if (item == null)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 40),
+                child: Center(
+                  child: Text(
+                    'Item not found',
+                    style: TextStyle(color: AppTheme.textSecondary),
+                  ),
+                ),
+              )
+            else
+              _ItemHeaderCard(item: item),
             const SizedBox(height: 24),
-            _DetailsSection(),
+            if (item != null) _DetailsSection(item: item),
             const SizedBox(height: 24),
-            _HistorySection(),
+            if (item != null) _HistorySection(entries: _entries),
             const SizedBox(height: 24),
-            _OptionsSection(),
+            if (item != null) _OptionsSection(itemId: item.id),
             const SizedBox(height: 24),
           ],
         ),
@@ -122,8 +181,12 @@ class ItemDetailsScreen extends StatelessWidget {
 }
 
 class _ItemHeaderCard extends StatelessWidget {
+  final StockSheetItem item;
+  const _ItemHeaderCard({required this.item});
+
   @override
   Widget build(BuildContext context) {
+    final total = item.qty10ft + item.qty12ft;
     return Container(
       decoration: BoxDecoration(
         color: AppTheme.cardBackground,
@@ -137,8 +200,8 @@ class _ItemHeaderCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Boards',
+                Text(
+                  item.typeName,
                   style: TextStyle(
                     color: AppTheme.textSecondary,
                     fontSize: 12,
@@ -146,8 +209,8 @@ class _ItemHeaderCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 8),
-                const Text(
-                  'Buff Board 12mm',
+                Text(
+                  '${item.code} · ${item.finish}',
                   style: TextStyle(
                     color: AppTheme.textPrimary,
                     fontSize: 22,
@@ -155,8 +218,8 @@ class _ItemHeaderCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 8),
-                const Text(
-                  'SKU-BB-12',
+                Text(
+                  '10ft: ${item.qty10ft} · 12ft: ${item.qty12ft}',
                   style: TextStyle(
                     color: AppTheme.textSecondary,
                     fontSize: 13,
@@ -166,13 +229,26 @@ class _ItemHeaderCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF2E7D32).withValues(alpha: 0.2),
+                    color: (total == 0
+                            ? const Color(0xFFFF5252)
+                            : total < AppConstants.lowStockThreshold
+                                ? const Color(0xFFFFC107)
+                                : const Color(0xFF2E7D32))
+                        .withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(999),
                   ),
-                  child: const Text(
-                    'In stock',
+                  child: Text(
+                    total == 0
+                        ? 'Out of stock'
+                        : total < AppConstants.lowStockThreshold
+                            ? 'Low stock'
+                            : 'In stock',
                     style: TextStyle(
-                      color: Color(0xFF2E7D32),
+                      color: total == 0
+                          ? const Color(0xFFFF5252)
+                          : total < AppConstants.lowStockThreshold
+                              ? const Color(0xFFFFC107)
+                              : const Color(0xFF2E7D32),
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
                     ),
@@ -185,22 +261,10 @@ class _ItemHeaderCard extends StatelessWidget {
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Container(
-                width: 72,
-                height: 72,
-                decoration: BoxDecoration(
-                  color: AppTheme.borderColor,
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: const Icon(
-                  Icons.inventory_2_rounded,
-                  color: AppTheme.textSecondary,
-                  size: 36,
-                ),
-              ),
+              _ItemImageThumb(url: item.typeImageUrl),
               const SizedBox(height: 12),
-              const Text(
-                '34',
+              Text(
+                '$total',
                 style: TextStyle(
                   color: AppTheme.textPrimary,
                   fontSize: 28,
@@ -208,7 +272,7 @@ class _ItemHeaderCard extends StatelessWidget {
                 ),
               ),
               const Text(
-                'units',
+                'total',
                 style: TextStyle(
                   color: AppTheme.textSecondary,
                   fontSize: 12,
@@ -222,7 +286,61 @@ class _ItemHeaderCard extends StatelessWidget {
   }
 }
 
+class _ItemImageThumb extends StatelessWidget {
+  final String? url;
+
+  const _ItemImageThumb({required this.url});
+
+  @override
+  Widget build(BuildContext context) {
+    final trimmed = url?.trim();
+    final hasUrl = trimmed != null && trimmed.isNotEmpty;
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        width: 72,
+        height: 72,
+        color: AppTheme.borderColor,
+        child: !hasUrl
+            ? const Icon(
+                Icons.image_outlined,
+                color: AppTheme.textSecondary,
+                size: 34,
+              )
+            : Image.network(
+                trimmed,
+                fit: BoxFit.cover,
+                loadingBuilder: (context, child, progress) {
+                  if (progress == null) return child;
+                  return const Center(
+                    child: SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.4,
+                        color: AppTheme.primaryBlue,
+                      ),
+                    ),
+                  );
+                },
+                errorBuilder: (context, error, stackTrace) {
+                  return const Icon(
+                    Icons.broken_image_outlined,
+                    color: AppTheme.textSecondary,
+                    size: 28,
+                  );
+                },
+              ),
+      ),
+    );
+  }
+}
+
 class _DetailsSection extends StatelessWidget {
+  final StockSheetItem item;
+  const _DetailsSection({required this.item});
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -246,15 +364,15 @@ class _DetailsSection extends StatelessWidget {
           padding: const EdgeInsets.all(16),
           child: Column(
             children: [
-              const _DetailRow(label: 'Category', value: 'Boards'),
+              _DetailRow(label: 'Type', value: item.typeName),
               const Divider(height: 24, color: AppTheme.borderColor),
-              const _DetailRow(label: 'SKU', value: 'SKU-BB-12'),
+              _DetailRow(label: 'Code', value: item.code),
               const Divider(height: 24, color: AppTheme.borderColor),
-              const _DetailRow(label: 'Current stock', value: '34 units'),
+              _DetailRow(label: 'Finish', value: item.finish),
               const Divider(height: 24, color: AppTheme.borderColor),
-              const _DetailRow(label: 'Status', value: 'In stock'),
+              _DetailRow(label: 'Qty (10ft)', value: '${item.qty10ft}'),
               const Divider(height: 24, color: AppTheme.borderColor),
-              const _DetailRow(label: 'Reorder point', value: '10 units'),
+              _DetailRow(label: 'Qty (12ft)', value: '${item.qty12ft}'),
             ],
           ),
         ),
@@ -295,6 +413,9 @@ class _DetailRow extends StatelessWidget {
 }
 
 class _HistorySection extends StatelessWidget {
+  final List<StockEntryV2> entries;
+  const _HistorySection({required this.entries});
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -326,46 +447,32 @@ class _HistorySection extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 8),
-        _HistoryTile(
-          type: 'Stock in',
-          detail: 'Today, 10:30 AM',
-          qty: '+50',
-          qtyColor: const Color(0xFF2E7D32),
-        ),
-        const SizedBox(height: 8),
-        _HistoryTile(
-          type: 'Stock out',
-          detail: 'Yesterday, 4:45 PM',
-          qty: '-12',
-          qtyColor: const Color(0xFFE65100),
-        ),
-        const SizedBox(height: 8),
-        _HistoryTile(
-          type: 'Stock in',
-          detail: 'Mon, 2:00 PM',
-          qty: '+20',
-          qtyColor: const Color(0xFF2E7D32),
-        ),
+        if (entries.isEmpty)
+          const Text(
+            'No history yet.',
+            style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+          )
+        else
+          ...entries.take(3).expand(
+                (e) => [
+                  _HistoryTile(entry: e),
+                  const SizedBox(height: 8),
+                ],
+              ),
       ],
     );
   }
 }
 
 class _HistoryTile extends StatelessWidget {
-  final String type;
-  final String detail;
-  final String qty;
-  final Color qtyColor;
+  final StockEntryV2 entry;
 
-  const _HistoryTile({
-    required this.type,
-    required this.detail,
-    required this.qty,
-    required this.qtyColor,
-  });
+  const _HistoryTile({required this.entry});
 
   @override
   Widget build(BuildContext context) {
+    final isIn = entry.isIn;
+    final qtyColor = isIn ? const Color(0xFF2E7D32) : const Color(0xFFE65100);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
@@ -382,7 +489,7 @@ class _HistoryTile extends StatelessWidget {
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(
-              type == 'Stock in' ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded,
+              isIn ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded,
               color: qtyColor,
               size: 22,
             ),
@@ -393,7 +500,7 @@ class _HistoryTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  type,
+                  isIn ? 'Stock in' : 'Stock out',
                   style: const TextStyle(
                     color: AppTheme.textPrimary,
                     fontSize: 14,
@@ -402,7 +509,7 @@ class _HistoryTile extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  detail,
+                  entry.createdAt.toLocal().toString(),
                   style: const TextStyle(
                     color: AppTheme.textSecondary,
                     fontSize: 12,
@@ -412,10 +519,15 @@ class _HistoryTile extends StatelessWidget {
             ),
           ),
           Text(
-            '$qty units',
+            [
+              if (entry.delta10ft != 0)
+                '${isIn ? "+" : "-"}${entry.delta10ft} (10ft)',
+              if (entry.delta12ft != 0)
+                '${isIn ? "+" : "-"}${entry.delta12ft} (12ft)',
+            ].join('\n'),
             style: TextStyle(
               color: qtyColor,
-              fontSize: 14,
+              fontSize: 12,
               fontWeight: FontWeight.w700,
             ),
           ),
@@ -426,6 +538,9 @@ class _HistoryTile extends StatelessWidget {
 }
 
 class _OptionsSection extends StatelessWidget {
+  final String itemId;
+  const _OptionsSection({required this.itemId});
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -466,7 +581,10 @@ class _OptionsSection extends StatelessWidget {
         SizedBox(
           width: double.infinity,
           child: OutlinedButton.icon(
-            onPressed: () => context.push(AppConstants.editEntryRoute),
+            onPressed: () => context.push(
+              AppConstants.editEntryRoute,
+              extra: <String, dynamic>{'itemId': itemId},
+            ),
             icon: const Icon(Icons.edit_rounded, size: 20),
             label: const Text('Edit item'),
             style: OutlinedButton.styleFrom(

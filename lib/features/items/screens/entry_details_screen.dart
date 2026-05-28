@@ -4,12 +4,60 @@ import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_primary_button.dart';
 import '../../../core/widgets/app_scaffold.dart';
+import '../models/item_models.dart';
+import '../repository/items_repository.dart';
+import '../../../core/constants/app_constants.dart';
+import '../../../core/widgets/toast_helper.dart';
 
-class EntryDetailsScreen extends StatelessWidget {
+class EntryDetailsScreen extends StatefulWidget {
   const EntryDetailsScreen({super.key});
 
   @override
+  State<EntryDetailsScreen> createState() => _EntryDetailsScreenState();
+}
+
+class _EntryDetailsScreenState extends State<EntryDetailsScreen> {
+  final _repo = ItemsRepository();
+  bool _loading = true;
+  StockEntryV2? _entry;
+  bool _deleting = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final extra = GoRouterState.of(context).extra;
+    final entryId = extra is Map ? extra['entryId'] as String? : null;
+    _load(entryId);
+  }
+
+  Future<void> _load(String? entryId) async {
+    if (entryId == null || entryId.isEmpty) {
+      setState(() {
+        _loading = false;
+        _entry = null;
+      });
+      return;
+    }
+    setState(() => _loading = true);
+    try {
+      final entry = await _repo.getStockEntryById(entryId);
+      if (!mounted) return;
+      setState(() {
+        _entry = entry;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _entry = null;
+        _loading = false;
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final entry = _entry;
     return AppScaffold(
       child: SingleChildScrollView(
         child: Column(
@@ -43,7 +91,25 @@ class EntryDetailsScreen extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 12),
-            _HeaderCard(),
+            if (_loading)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 40),
+                child: Center(
+                  child: CircularProgressIndicator(color: AppTheme.primaryBlue),
+                ),
+              )
+            else if (entry == null)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 40),
+                child: Center(
+                  child: Text(
+                    'Entry not found',
+                    style: TextStyle(color: AppTheme.textSecondary),
+                  ),
+                ),
+              )
+            else
+              _HeaderCard(entry: entry),
             const SizedBox(height: 24),
             const Text(
               'TRANSACTION INFO',
@@ -54,51 +120,55 @@ class EntryDetailsScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
-            const _InfoRow(
+            _InfoRow(
               icon: Icons.person_outline,
               iconBg: Color(0xFF263238),
               label: 'Performed by',
-              value: 'Sarah Jenkins',
+              value: 'You',
             ),
             const SizedBox(height: 12),
-            const _InfoRow(
+            _InfoRow(
               icon: Icons.calendar_month_outlined,
               iconBg: Color(0xFF263238),
               label: 'Date & Time',
-              value: 'Oct 24, 2023 • 09:41 AM',
+              value: entry?.createdAt.toLocal().toString() ?? '—',
             ),
             const SizedBox(height: 12),
-            const _InfoRow(
+            _InfoRow(
               icon: Icons.location_on_outlined,
               iconBg: Color(0xFF4E342E),
               label: 'Destination',
-              value: 'Zone B • Shelf 42',
+              value: entry?.location ?? '—',
             ),
             const SizedBox(height: 12),
-            const _InfoRow(
+            _InfoRow(
               icon: Icons.description_outlined,
               iconBg: Color(0xFF4A148C),
               label: 'Notes',
-              value:
-                  'Restocking from quarterly supplier shipment #99. Verified count manually before entry.',
+              value: entry?.notes ?? '—',
               isMultiline: true,
             ),
             const SizedBox(height: 24),
-            const Center(
-              child: Text(
-                'Entry ID: #TRX-883921',
-                style: TextStyle(
-                  color: AppTheme.textSecondary,
-                  fontSize: 12,
+            if (entry != null)
+              Center(
+                child: Text(
+                  'Entry ID: ${entry.id}',
+                  style: const TextStyle(
+                    color: AppTheme.textSecondary,
+                    fontSize: 12,
+                  ),
                 ),
               ),
-            ),
             const SizedBox(height: 24),
             AppPrimaryButton(
               label: 'Edit Entry',
               icon: Icons.edit_rounded,
               onPressed: () {
-                // Navigate to edit screen via router when wired.
+                if (entry == null) return;
+                context.push(
+                  AppConstants.editEntryRoute,
+                  extra: <String, dynamic>{'entryId': entry.id},
+                );
               },
             ),
             const SizedBox(height: 12),
@@ -113,7 +183,27 @@ class EntryDetailsScreen extends StatelessWidget {
                     borderRadius: BorderRadius.circular(18),
                   ),
                 ),
-                onPressed: () {},
+                onPressed: _deleting
+                    ? null
+                    : () async {
+                        if (entry == null) return;
+                        final ctx = context;
+                        setState(() => _deleting = true);
+                        try {
+                          await _repo.deleteStockEntry(entry.id);
+                          if (!mounted) return;
+                          // ignore: use_build_context_synchronously
+                          ToastHelper.success(ctx, 'Entry deleted');
+                          // ignore: use_build_context_synchronously
+                          ctx.pop();
+                        } catch (e) {
+                          if (!mounted) return;
+                          // ignore: use_build_context_synchronously
+                          ToastHelper.error(ctx, e.toString());
+                        } finally {
+                          if (mounted) setState(() => _deleting = false);
+                        }
+                      },
                 child: const Text(
                   'Delete Entry',
                   style: TextStyle(
@@ -132,8 +222,13 @@ class EntryDetailsScreen extends StatelessWidget {
 }
 
 class _HeaderCard extends StatelessWidget {
+  final StockEntryV2 entry;
+  const _HeaderCard({required this.entry});
+
   @override
   Widget build(BuildContext context) {
+    final isIn = entry.isIn;
+    final color = isIn ? const Color(0xFF2E7D32) : const Color(0xFFE65100);
     return Container(
       decoration: BoxDecoration(
         color: AppTheme.cardBackground,
@@ -147,18 +242,14 @@ class _HeaderCard extends StatelessWidget {
             width: 72,
             height: 72,
             decoration: BoxDecoration(
-              color: AppTheme.primaryBlue,
+              color: color,
               borderRadius: BorderRadius.circular(20),
             ),
-            child: const Icon(
-              Icons.inventory_2_rounded,
-              color: Colors.white,
-              size: 36,
-            ),
+            child: _EntryImage(url: entry.typeImageUrl),
           ),
           const SizedBox(height: 16),
-          const Text(
-            'High-Torque Motor Unit',
+          Text(
+            entry.itemLabel.isEmpty ? 'Item' : entry.itemLabel,
             style: TextStyle(
               color: AppTheme.textPrimary,
               fontSize: 20,
@@ -166,8 +257,8 @@ class _HeaderCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 4),
-          const Text(
-            'SKU: MTR-X4500-V2',
+          Text(
+            isIn ? 'Stock in' : 'Stock out',
             style: TextStyle(
               color: AppTheme.textSecondary,
               fontSize: 13,
@@ -177,11 +268,16 @@ class _HeaderCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             decoration: BoxDecoration(
-              color: const Color(0xFF1B5E20),
+              color: color,
               borderRadius: BorderRadius.circular(999),
             ),
-            child: const Text(
-              '+ 50 Units',
+            child: Text(
+              [
+                if (entry.delta10ft != 0)
+                  '${isIn ? "+" : "-"}${entry.delta10ft} (10ft)',
+                if (entry.delta12ft != 0)
+                  '${isIn ? "+" : "-"}${entry.delta12ft} (12ft)',
+              ].join(' · '),
               style: TextStyle(
                 color: Colors.white,
                 fontSize: 16,
@@ -190,14 +286,44 @@ class _HeaderCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          const Text(
-            'Stock Adjustment (Inbound)',
+          Text(
+            isIn ? 'Stock Adjustment (Inbound)' : 'Stock Adjustment (Outbound)',
             style: TextStyle(
               color: AppTheme.textSecondary,
               fontSize: 13,
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _EntryImage extends StatelessWidget {
+  final String? url;
+  const _EntryImage({required this.url});
+
+  @override
+  Widget build(BuildContext context) {
+    final trimmed = url?.trim();
+    final hasUrl = trimmed != null && trimmed.isNotEmpty;
+    if (!hasUrl) {
+      return const Icon(
+        Icons.inventory_2_rounded,
+        color: Colors.white,
+        size: 36,
+      );
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(20),
+      child: Image.network(
+        trimmed,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) => const Icon(
+          Icons.broken_image_outlined,
+          color: Colors.white,
+          size: 30,
+        ),
       ),
     );
   }

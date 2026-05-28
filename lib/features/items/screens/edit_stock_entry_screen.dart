@@ -4,6 +4,9 @@ import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_primary_button.dart';
 import '../../../core/widgets/app_scaffold.dart';
+import '../../../core/widgets/toast_helper.dart';
+import '../models/item_models.dart';
+import '../repository/items_repository.dart';
 
 class EditStockEntryScreen extends StatefulWidget {
   const EditStockEntryScreen({super.key});
@@ -13,10 +16,99 @@ class EditStockEntryScreen extends StatefulWidget {
 }
 
 class _EditStockEntryScreenState extends State<EditStockEntryScreen> {
-  int quantity = 50;
+  final _repo = ItemsRepository();
+  final _notesController = TextEditingController();
+  final _locationController = TextEditingController();
+
+  bool _loading = true;
+  bool _saving = false;
+  StockEntryV2? _entry;
+  int _qty10 = 0;
+  int _qty12 = 0;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final extra = GoRouterState.of(context).extra;
+    final entryId = extra is Map ? extra['entryId'] as String? : null;
+    _load(entryId);
+  }
+
+  @override
+  void dispose() {
+    _notesController.dispose();
+    _locationController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load(String? entryId) async {
+    if (entryId == null || entryId.isEmpty) {
+      setState(() {
+        _loading = false;
+        _entry = null;
+      });
+      return;
+    }
+    setState(() => _loading = true);
+    final entry = await _repo.getStockEntryById(entryId);
+    if (!mounted) return;
+    setState(() {
+      _entry = entry;
+      _qty10 = entry?.delta10ft ?? 0;
+      _qty12 = entry?.delta12ft ?? 0;
+      _locationController.text = entry?.location ?? '';
+      _notesController.text = entry?.notes ?? '';
+      _loading = false;
+    });
+  }
+
+  Future<void> _save() async {
+    final entry = _entry;
+    if (entry == null) return;
+    if (_qty10 <= 0 && _qty12 <= 0) {
+      ToastHelper.error(context, 'Enter at least one quantity');
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      await _repo.updateStockEntry(
+        entryId: entry.id,
+        newDelta10ft: _qty10,
+        newDelta12ft: _qty12,
+        newLocation: _locationController.text,
+        newNotes: _notesController.text,
+      );
+      if (!mounted) return;
+      ToastHelper.success(context, 'Entry updated');
+      context.pop();
+    } catch (e) {
+      if (!mounted) return;
+      ToastHelper.error(context, e.toString());
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _delete() async {
+    final entry = _entry;
+    if (entry == null) return;
+    setState(() => _saving = true);
+    try {
+      await _repo.deleteStockEntry(entry.id);
+      if (!mounted) return;
+      ToastHelper.success(context, 'Entry deleted');
+      context.pop();
+    } catch (e) {
+      if (!mounted) return;
+      ToastHelper.error(context, e.toString());
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final entry = _entry;
     return AppScaffold(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -45,7 +137,7 @@ class _EditStockEntryScreenState extends State<EditStockEntryScreen> {
               ),
               const Spacer(),
               TextButton(
-                onPressed: () {},
+                onPressed: _saving ? null : _save,
                 child: const Text(
                   'Save',
                   style: TextStyle(
@@ -58,7 +150,23 @@ class _EditStockEntryScreenState extends State<EditStockEntryScreen> {
             ],
           ),
           const SizedBox(height: 16),
-          _ItemSummaryCard(),
+          if (_loading)
+            const Expanded(
+              child: Center(
+                child: CircularProgressIndicator(color: AppTheme.primaryBlue),
+              ),
+            )
+          else if (entry == null)
+            const Expanded(
+              child: Center(
+                child: Text(
+                  'Entry not found',
+                  style: TextStyle(color: AppTheme.textSecondary),
+                ),
+              ),
+            )
+          else ...[
+            _ItemSummaryCard(entry: entry),
           const SizedBox(height: 24),
           const Text(
             'Quantity Adjustment',
@@ -77,52 +185,27 @@ class _EditStockEntryScreenState extends State<EditStockEntryScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             child: Row(
               children: [
-                _QtyButton(
-                  icon: Icons.remove,
-                  onTap: () {
-                    setState(() {
-                      quantity = (quantity - 1).clamp(0, 999999);
-                    });
-                  },
+                Expanded(
+                  child: _QtyCard(
+                    label: '10 ft',
+                    value: _qty10,
+                    onChanged: (v) => setState(() => _qty10 = v),
+                  ),
                 ),
-                const Spacer(),
-                Column(
-                  children: [
-                    Text(
-                      '$quantity',
-                      style: const TextStyle(
-                        color: AppTheme.textPrimary,
-                        fontSize: 28,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    const Text(
-                      'UNITS',
-                      style: TextStyle(
-                        color: AppTheme.textSecondary,
-                        fontSize: 12,
-                        letterSpacing: 1.6,
-                      ),
-                    ),
-                  ],
-                ),
-                const Spacer(),
-                _QtyButton(
-                  icon: Icons.add,
-                  isPrimary: true,
-                  onTap: () {
-                    setState(() {
-                      quantity++;
-                    });
-                  },
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _QtyCard(
+                    label: '12 ft',
+                    value: _qty12,
+                    onChanged: (v) => setState(() => _qty12 = v),
+                  ),
                 ),
               ],
             ),
           ),
           const SizedBox(height: 8),
-          const Text(
-            'i  Previous entry was 42 units.',
+          Text(
+            'Previous: 10ft ${entry.delta10ft}, 12ft ${entry.delta12ft}',
             style: TextStyle(
               color: AppTheme.textSecondary,
               fontSize: 12,
@@ -140,6 +223,7 @@ class _EditStockEntryScreenState extends State<EditStockEntryScreen> {
           const SizedBox(height: 8),
           Expanded(
             child: TextField(
+              controller: _notesController,
               maxLines: null,
               expands: true,
               decoration: InputDecoration(
@@ -158,22 +242,30 @@ class _EditStockEntryScreenState extends State<EditStockEntryScreen> {
           ),
           const SizedBox(height: 16),
           Row(
-            children: const [
-            _MetaChip(label: 'LAST UPDATED', value: 'Today, 10:23 AM'),
-            SizedBox(width: 8),
-            _MetaChip(label: 'UPDATED BY', value: 'Alex Chen'),
-          ],),
+            children: [
+              _MetaChip(
+                label: 'LAST UPDATED',
+                value: entry.createdAt.toLocal().toString(),
+              ),
+              const SizedBox(width: 8),
+              _MetaChip(
+                label: 'UPDATED BY',
+                value: entry.enteredByName ?? '—',
+              ),
+            ],
+          ),
           const SizedBox(height: 16),
           AppPrimaryButton(
             label: 'Update Entry',
             icon: Icons.save_rounded,
-            onPressed: () {},
+            onPressed: _saving ? null : _save,
+            isLoading: _saving,
           ),
           const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
             child: TextButton(
-              onPressed: () {},
+              onPressed: _saving ? null : _delete,
               child: const Text(
                 'Delete this entry',
                 style: TextStyle(
@@ -185,6 +277,7 @@ class _EditStockEntryScreenState extends State<EditStockEntryScreen> {
             ),
           ),
           const SizedBox(height: 16),
+          ],
         ],
       ),
     );
@@ -192,6 +285,10 @@ class _EditStockEntryScreenState extends State<EditStockEntryScreen> {
 }
 
 class _ItemSummaryCard extends StatelessWidget {
+  final StockEntryV2 entry;
+
+  const _ItemSummaryCard({required this.entry});
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -209,18 +306,15 @@ class _ItemSummaryCard extends StatelessWidget {
               color: AppTheme.borderColor,
               borderRadius: BorderRadius.circular(18),
             ),
-            child: const Icon(
-              Icons.inventory_2_rounded,
-              color: Colors.white,
-            ),
+              child: _EntryItemThumb(url: entry.typeImageUrl),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
+                children: [
                 Text(
-                  'Premium Widget A',
+                  entry.itemLabel.isEmpty ? 'Item' : entry.itemLabel,
                   style: TextStyle(
                     color: AppTheme.textPrimary,
                     fontSize: 16,
@@ -229,7 +323,7 @@ class _ItemSummaryCard extends StatelessWidget {
                 ),
                 SizedBox(height: 4),
                 Text(
-                  'SKU: WDG-001',
+                  entry.isIn ? 'Stock in' : 'Stock out',
                   style: TextStyle(
                     color: AppTheme.textSecondary,
                     fontSize: 13,
@@ -237,7 +331,7 @@ class _ItemSummaryCard extends StatelessWidget {
                 ),
                 SizedBox(height: 4),
                 Text(
-                  'In Stock • Warehouse A',
+                  entry.location ?? '—',
                   style: TextStyle(
                     color: Color(0xFF3DDC84),
                     fontSize: 13,
@@ -252,30 +346,82 @@ class _ItemSummaryCard extends StatelessWidget {
   }
 }
 
-class _QtyButton extends StatelessWidget {
-  final IconData icon;
-  final bool isPrimary;
-  final VoidCallback onTap;
+class _EntryItemThumb extends StatelessWidget {
+  final String? url;
+  const _EntryItemThumb({required this.url});
 
-  const _QtyButton({
-    required this.icon,
-    this.isPrimary = false,
-    required this.onTap,
+  @override
+  Widget build(BuildContext context) {
+    final trimmed = url?.trim();
+    final hasUrl = trimmed != null && trimmed.isNotEmpty;
+    if (!hasUrl) {
+      return const Icon(Icons.image_outlined, color: Colors.white);
+    }
+    return Image.network(
+      trimmed,
+      fit: BoxFit.cover,
+      errorBuilder: (context, error, stackTrace) =>
+          const Icon(Icons.broken_image_outlined, color: Colors.white),
+    );
+  }
+}
+
+class _QtyCard extends StatelessWidget {
+  final String label;
+  final int value;
+  final ValueChanged<int> onChanged;
+
+  const _QtyCard({
+    required this.label,
+    required this.value,
+    required this.onChanged,
   });
 
   @override
   Widget build(BuildContext context) {
-    final color = isPrimary ? AppTheme.primaryBlue : AppTheme.borderColor;
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 64,
-        height: 56,
-        decoration: BoxDecoration(
-          color: color,
-          borderRadius: BorderRadius.circular(18),
-        ),
-        child: Icon(icon, color: Colors.white),
+    return Container(
+      decoration: BoxDecoration(
+        color: AppTheme.darkBackground,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppTheme.borderColor),
+      ),
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              color: AppTheme.textSecondary,
+              fontSize: 12,
+              letterSpacing: 1.2,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              IconButton(
+                onPressed: () => onChanged((value - 1).clamp(0, 999999)),
+                icon: const Icon(Icons.remove_circle_outline_rounded),
+                color: AppTheme.textSecondary,
+              ),
+              Text(
+                '$value',
+                style: const TextStyle(
+                  color: AppTheme.textPrimary,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              IconButton(
+                onPressed: () => onChanged(value + 1),
+                icon: const Icon(Icons.add_circle_rounded),
+                color: AppTheme.primaryBlue,
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

@@ -7,7 +7,8 @@ import '../../../core/widgets/app_primary_button.dart';
 import '../../../core/widgets/app_scaffold.dart';
 
 /// Supports both stock-in and stock-out success.
-/// [extra] can be: { 'type': 'in'|'out', 'itemName': String?, 'quantity': int? }
+/// [extra] can be:
+/// { 'type': 'in'|'out', 'itemName': String?, 'qty10ft': int?, 'qty12ft': int? }
 class StockSuccessScreen extends StatelessWidget {
   const StockSuccessScreen({super.key, this.extra});
 
@@ -15,7 +16,8 @@ class StockSuccessScreen extends StatelessWidget {
 
   static const String _keyType = 'type';
   static const String _keyItemName = 'itemName';
-  static const String _keyQuantity = 'quantity';
+  static const String _keyQty10ft = 'qty10ft';
+  static const String _keyQty12ft = 'qty12ft';
 
   bool get _isStockIn {
     final type = extra?[_keyType];
@@ -28,8 +30,13 @@ class StockSuccessScreen extends StatelessWidget {
     return v is String ? v : null;
   }
 
-  int? get _quantity {
-    final v = extra?[_keyQuantity];
+  int? get _qty10ft {
+    final v = extra?[_keyQty10ft];
+    return v is int ? v : null;
+  }
+
+  int? get _qty12ft {
+    final v = extra?[_keyQty12ft];
     return v is int ? v : null;
   }
 
@@ -91,7 +98,7 @@ class StockSuccessScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 24),
-            if (_itemName != null || _quantity != null) ...[
+            if (_itemName != null || _qty10ft != null || _qty12ft != null) ...[
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(16),
@@ -127,17 +134,25 @@ class StockSuccessScreen extends StatelessWidget {
                               fontWeight: FontWeight.w600,
                             ),
                           ),
-                          if (_quantity != null) ...[
-                            const SizedBox(height: 4),
+                          const SizedBox(height: 6),
+                          if (_qty10ft != null && _qty10ft != 0)
                             Text(
-                              '${isIn ? "+" : "-"}$_quantity units',
+                              '${isIn ? "+" : "-"}$_qty10ft (10ft)',
                               style: TextStyle(
                                 color: accentColor,
                                 fontSize: 14,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
-                          ],
+                          if (_qty12ft != null && _qty12ft != 0)
+                            Text(
+                              '${isIn ? "+" : "-"}$_qty12ft (12ft)',
+                              style: TextStyle(
+                                color: accentColor,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
                         ],
                       ),
                     ),

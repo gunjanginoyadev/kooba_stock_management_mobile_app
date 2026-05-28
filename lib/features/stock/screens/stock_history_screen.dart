@@ -1,83 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_scaffold.dart';
+import '../../../core/config/supabase_config.dart';
 
-// ── Demo history entries ────────────────────────────────────────────────────
 class _HistoryEntry {
+  final String id;
   final bool isStockIn;
   final String itemName;
-  final int quantity;
-  final String when;
-  final String by;
+  final int delta10ft;
+  final int delta12ft;
+  final DateTime when;
 
   const _HistoryEntry({
+    required this.id,
     required this.isStockIn,
     required this.itemName,
-    required this.quantity,
+    required this.delta10ft,
+    required this.delta12ft,
     required this.when,
-    required this.by,
   });
 }
-
-const List<_HistoryEntry> _todayEntries = [
-  _HistoryEntry(
-    isStockIn: true,
-    itemName: 'Buff Board 12mm',
-    quantity: 50,
-    when: '10:30 AM',
-    by: 'You',
-  ),
-  _HistoryEntry(
-    isStockIn: false,
-    itemName: 'Leather – Thin (Materials)',
-    quantity: 24,
-    when: '9:15 AM',
-    by: 'You',
-  ),
-  _HistoryEntry(
-    isStockIn: true,
-    itemName: 'Hammer Blade Pro',
-    quantity: 12,
-    when: '8:00 AM',
-    by: 'You',
-  ),
-];
-
-const List<_HistoryEntry> _yesterdayEntries = [
-  _HistoryEntry(
-    isStockIn: false,
-    itemName: 'Premium Foam XL (Packaging)',
-    quantity: 8,
-    when: '4:45 PM',
-    by: 'You',
-  ),
-  _HistoryEntry(
-    isStockIn: true,
-    itemName: 'Ply 4x8',
-    quantity: 20,
-    when: '11:20 AM',
-    by: 'You',
-  ),
-];
-
-const List<_HistoryEntry> _thisWeekEntries = [
-  _HistoryEntry(
-    isStockIn: true,
-    itemName: 'Adhesive 5L',
-    quantity: 10,
-    when: 'Mon, 2:00 PM',
-    by: 'You',
-  ),
-  _HistoryEntry(
-    isStockIn: false,
-    itemName: 'Drill Bit 10mm (Tools)',
-    quantity: 5,
-    when: 'Mon, 10:00 AM',
-    by: 'You',
-  ),
-];
 
 class StockHistoryScreen extends StatefulWidget {
   const StockHistoryScreen({super.key});
@@ -89,9 +34,101 @@ class StockHistoryScreen extends StatefulWidget {
 class _StockHistoryScreenState extends State<StockHistoryScreen> {
   String _dateFilter = 'Today'; // Today, This week, This month
   String _typeFilter = 'All';   // All, Stock in, Stock out
+  String _searchQuery = '';
+  bool _loading = true;
+  List<_HistoryEntry> _entries = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    if (!SupabaseConfig.isConfigured) {
+      setState(() {
+        _entries = [];
+        _loading = false;
+      });
+      return;
+    }
+
+    setState(() => _loading = true);
+    try {
+      final client = Supabase.instance.client;
+      final userId = client.auth.currentUser?.id;
+      if (userId == null) throw Exception('Not signed in');
+
+      final res = await client
+          .from('stock_entries_v2')
+          .select('id, created_at, entry_type, delta_10ft, delta_12ft, items_v2(code, finish, item_types(name))')
+          .order('created_at', ascending: false)
+          .limit(200);
+
+      final list = (res as List).map((row) {
+        final map = row as Map<String, dynamic>;
+        final item = map['items_v2'] as Map<String, dynamic>?;
+        final type = item?['item_types'] as Map<String, dynamic>?;
+        final typeName = (type?['name'] as String?) ?? '';
+        final code = (item?['code'] as String?) ?? '';
+        final finish = (item?['finish'] as String?) ?? '';
+
+        return _HistoryEntry(
+          id: map['id'] as String,
+          isStockIn: map['entry_type'] == 'in',
+          itemName: [typeName, code.isEmpty ? null : code, finish.isEmpty ? null : finish]
+              .whereType<String>()
+              .where((e) => e.trim().isNotEmpty)
+              .join(' · '),
+          delta10ft: (map['delta_10ft'] as num?)?.toInt() ?? 0,
+          delta12ft: (map['delta_12ft'] as num?)?.toInt() ?? 0,
+          when: DateTime.tryParse(map['created_at']?.toString() ?? '') ?? DateTime.now(),
+        );
+      }).toList();
+
+      if (!mounted) return;
+      setState(() {
+        _entries = list;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _entries = [];
+        _loading = false;
+      });
+    }
+  }
+
+  List<_HistoryEntry> get _filteredEntries {
+    var list = _entries;
+    final q = _searchQuery.trim().toLowerCase();
+    if (q.isNotEmpty) {
+      list = list.where((e) => e.itemName.toLowerCase().contains(q)).toList();
+    }
+
+    if (_typeFilter == 'Stock in') {
+      list = list.where((e) => e.isStockIn).toList();
+    } else if (_typeFilter == 'Stock out') {
+      list = list.where((e) => !e.isStockIn).toList();
+    }
+
+    final now = DateTime.now();
+    DateTime cutoff;
+    if (_dateFilter == 'Today') {
+      cutoff = DateTime(now.year, now.month, now.day);
+    } else if (_dateFilter == 'This week') {
+      cutoff = now.subtract(const Duration(days: 7));
+    } else {
+      cutoff = now.subtract(const Duration(days: 30));
+    }
+    list = list.where((e) => e.when.isAfter(cutoff)).toList();
+    return list;
+  }
 
   @override
   Widget build(BuildContext context) {
+    final entries = _filteredEntries;
     return AppScaffold(
       appBar: AppBar(
         backgroundColor: AppTheme.darkBackground,
@@ -127,6 +164,7 @@ class _StockHistoryScreenState extends State<StockHistoryScreen> {
           ),
           const SizedBox(height: 16),
           TextField(
+            onChanged: (v) => setState(() => _searchQuery = v),
             decoration: InputDecoration(
               hintText: 'Search by item name…',
               prefixIcon: const Icon(
@@ -209,46 +247,40 @@ class _StockHistoryScreenState extends State<StockHistoryScreen> {
           ),
           const SizedBox(height: 20),
           Expanded(
-            child: ListView(
-              children: [
-                _SectionHeader(label: 'Today'),
-                const SizedBox(height: 8),
-                ..._todayEntries.map((e) => _HistoryTile(entry: e)),
-                const SizedBox(height: 20),
-                _SectionHeader(label: 'Yesterday'),
-                const SizedBox(height: 8),
-                ..._yesterdayEntries.map((e) => _HistoryTile(entry: e)),
-                const SizedBox(height: 20),
-                _SectionHeader(label: 'This week'),
-                const SizedBox(height: 8),
-                ..._thisWeekEntries.map((e) => _HistoryTile(entry: e)),
-                const SizedBox(height: 24),
-              ],
-            ),
+            child: _loading
+                ? const Center(
+                    child: CircularProgressIndicator(
+                      color: AppTheme.primaryBlue,
+                    ),
+                  )
+                : RefreshIndicator(
+                    onRefresh: _load,
+                    color: AppTheme.primaryBlue,
+                    child: entries.isEmpty
+                        ? ListView(
+                            children: const [
+                              SizedBox(height: 40),
+                              Center(
+                                child: Text(
+                                  'No history yet',
+                                  style: TextStyle(
+                                    color: AppTheme.textSecondary,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          )
+                        : ListView(
+                            children: [
+                              const SizedBox(height: 8),
+                              for (final e in entries) _HistoryTile(entry: e),
+                              const SizedBox(height: 24),
+                            ],
+                          ),
+                  ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _SectionHeader extends StatelessWidget {
-  final String label;
-
-  const _SectionHeader({required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Text(
-        label,
-        style: const TextStyle(
-          color: AppTheme.textSecondary,
-          fontSize: 12,
-          letterSpacing: 1.2,
-          fontWeight: FontWeight.w600,
-        ),
       ),
     );
   }
@@ -302,7 +334,11 @@ class _HistoryTile extends StatelessWidget {
     final isIn = entry.isStockIn;
     final accentColor = isIn ? const Color(0xFF2E7D32) : const Color(0xFFE65100);
     final typeLabel = isIn ? 'Stock in' : 'Stock out';
-    final qtyText = isIn ? '+${entry.quantity}' : '-${entry.quantity}';
+    final qty10Text =
+        entry.delta10ft == 0 ? null : '${isIn ? "+" : "-"}${entry.delta10ft} (10ft)';
+    final qty12Text =
+        entry.delta12ft == 0 ? null : '${isIn ? "+" : "-"}${entry.delta12ft} (12ft)';
+    final whenText = '${entry.when}';
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -310,7 +346,10 @@ class _HistoryTile extends StatelessWidget {
         color: AppTheme.cardBackground,
         borderRadius: BorderRadius.circular(18),
         child: InkWell(
-          onTap: () {},
+          onTap: () => context.push(
+            '/entry-details',
+            extra: <String, dynamic>{'entryId': entry.id},
+          ),
           borderRadius: BorderRadius.circular(18),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -367,7 +406,7 @@ class _HistoryTile extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '${entry.when} · by ${entry.by}',
+                        whenText,
                         style: const TextStyle(
                           color: AppTheme.textSecondary,
                           fontSize: 12,
@@ -377,7 +416,7 @@ class _HistoryTile extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  '$qtyText units',
+                  [qty10Text, qty12Text].whereType<String>().join('\n'),
                   style: TextStyle(
                     color: accentColor,
                     fontSize: 14,

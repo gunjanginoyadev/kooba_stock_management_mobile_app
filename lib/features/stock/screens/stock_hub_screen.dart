@@ -4,9 +4,51 @@ import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_scaffold.dart';
+import '../../items/repository/items_repository.dart';
 
-class StockHubScreen extends StatelessWidget {
+class StockHubScreen extends StatefulWidget {
   const StockHubScreen({super.key});
+
+  @override
+  State<StockHubScreen> createState() => _StockHubScreenState();
+}
+
+class _StockHubScreenState extends State<StockHubScreen> {
+  final _repo = ItemsRepository();
+  bool _loading = true;
+  List<_RecentActivity> _recent = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      final entries = await _repo.getStockEntries(limit: 3);
+      if (!mounted) return;
+      setState(() {
+        _recent = entries
+            .map(
+              (e) => _RecentActivity(
+                label: e.itemLabel.isEmpty ? 'Item' : e.itemLabel,
+                detail: e.createdAt.toLocal().toString(),
+                isIn: e.isIn,
+              ),
+            )
+            .toList();
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _recent = const [];
+        _loading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -115,17 +157,34 @@ class StockHubScreen extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 10),
-            _RecentActivityTile(
-              label: 'Stock in · Bolts M12',
-              detail: '500 units · 2 mins ago',
-              type: _ActivityType.stockIn,
-            ),
-            const SizedBox(height: 8),
-            _RecentActivityTile(
-              label: 'Stock out · Buff Board',
-              detail: '12 units · 1 hr ago',
-              type: _ActivityType.stockOut,
-            ),
+            if (_loading)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 20),
+                child: Center(
+                  child: CircularProgressIndicator(color: AppTheme.primaryBlue),
+                ),
+              )
+            else if (_recent.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 20),
+                child: Center(
+                  child: Text(
+                    'No activity yet',
+                    style: TextStyle(color: AppTheme.textSecondary),
+                  ),
+                ),
+              )
+            else
+              ..._recent.expand(
+                (e) => [
+                  _RecentActivityTile(
+                    label: e.isIn ? 'Stock in · ${e.label}' : 'Stock out · ${e.label}',
+                    detail: e.detail,
+                    type: e.isIn ? _ActivityType.stockIn : _ActivityType.stockOut,
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              ),
             const SizedBox(height: 24),
           ],
         ),
@@ -135,6 +194,18 @@ class StockHubScreen extends StatelessWidget {
 }
 
 enum _ActivityType { stockIn, stockOut }
+
+class _RecentActivity {
+  final String label;
+  final String detail;
+  final bool isIn;
+
+  const _RecentActivity({
+    required this.label,
+    required this.detail,
+    required this.isIn,
+  });
+}
 
 class _SectionLabel extends StatelessWidget {
   final String label;

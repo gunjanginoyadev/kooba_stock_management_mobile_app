@@ -17,11 +17,9 @@ class ManageItemsScreen extends StatefulWidget {
 
 class _ManageItemsScreenState extends State<ManageItemsScreen> {
   final _repository = ItemsRepository();
-  List<StockItem> _normalItems = [];
-  List<MapEntry<ItemCategory, List<StockItem>>> _categoriesWithItems = [];
+  List<MapEntry<StockItemType, List<StockSheetItem>>> _typesWithItems = [];
   bool _loading = true;
   String _searchQuery = '';
-  int _selectedTabIndex = 0;
 
   @override
   void initState() {
@@ -32,57 +30,53 @@ class _ManageItemsScreenState extends State<ManageItemsScreen> {
   Future<void> _load() async {
     if (!SupabaseConfig.isConfigured) {
       setState(() {
-        _normalItems = [];
-        _categoriesWithItems = [];
+        _typesWithItems = [];
         _loading = false;
       });
       return;
     }
     setState(() => _loading = true);
     try {
-      final normal = await _repository.getNormalItems();
-      final categoriesWithItems = await _repository.getCategoriesWithItems();
+      final types = await _repository.getItemTypes();
+      final items = await _repository.getStockSheetItems();
+      final byTypeId = <String, List<StockSheetItem>>{};
+      for (final item in items) {
+        byTypeId.putIfAbsent(item.typeId, () => []).add(item);
+      }
+      final pairs = <MapEntry<StockItemType, List<StockSheetItem>>>[];
+      for (final t in types) {
+        final list = byTypeId[t.id] ?? const <StockSheetItem>[];
+        pairs.add(MapEntry(t, list));
+      }
       if (mounted) {
         setState(() {
-          _normalItems = normal;
-          _categoriesWithItems = categoriesWithItems;
+          _typesWithItems = pairs;
           _loading = false;
         });
       }
     } catch (_) {
       if (mounted) {
         setState(() {
-          _normalItems = [];
-          _categoriesWithItems = [];
+          _typesWithItems = [];
           _loading = false;
         });
       }
     }
   }
 
-  List<StockItem> get _filteredNormal {
-    if (_searchQuery.trim().isEmpty) return _normalItems;
+  List<MapEntry<StockItemType, List<StockSheetItem>>> get _filtered {
+    if (_searchQuery.trim().isEmpty) return _typesWithItems;
     final q = _searchQuery.trim().toLowerCase();
-    return _normalItems
-        .where((e) =>
-            e.name.toLowerCase().contains(q) ||
-            (e.sku?.toLowerCase().contains(q) ?? false))
-        .toList();
-  }
-
-  List<MapEntry<ItemCategory, List<StockItem>>> get _filteredSpecial {
-    if (_searchQuery.trim().isEmpty) return _categoriesWithItems;
-    final q = _searchQuery.trim().toLowerCase();
-    return _categoriesWithItems
+    return _typesWithItems
         .map((e) {
-          final cat = e.key;
+          final type = e.key;
           final items = e.value
               .where((i) =>
-                  i.name.toLowerCase().contains(q) ||
-                  (i.sku?.toLowerCase().contains(q) ?? false) ||
-                  cat.name.toLowerCase().contains(q))
+                  i.code.toLowerCase().contains(q) ||
+                  i.finish.toLowerCase().contains(q) ||
+                  type.name.toLowerCase().contains(q))
               .toList();
-          return MapEntry(cat, items);
+          return MapEntry(type, items);
         })
         .where((e) => e.value.isNotEmpty)
         .toList();
@@ -117,7 +111,7 @@ class _ManageItemsScreenState extends State<ManageItemsScreen> {
         children: [
           const SizedBox(height: 8),
           const Text(
-            'View and manage your inventory.',
+            'View and manage your stock sheet items.',
             style: TextStyle(
               color: AppTheme.textSecondary,
               fontSize: 13,
@@ -127,7 +121,7 @@ class _ManageItemsScreenState extends State<ManageItemsScreen> {
           TextField(
             onChanged: (v) => setState(() => _searchQuery = v),
             decoration: InputDecoration(
-              hintText: 'Search by name or SKU…',
+              hintText: 'Search by type, code, finish…',
               prefixIcon: const Icon(
                 Icons.search_rounded,
                 color: AppTheme.textSecondary,
@@ -143,33 +137,6 @@ class _ManageItemsScreenState extends State<ManageItemsScreen> {
             style: const TextStyle(color: AppTheme.textPrimary),
           ),
           const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.all(4),
-            decoration: BoxDecoration(
-              color: AppTheme.cardBackground,
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: _TabBarChip(
-                    label: 'Normal items',
-                    isSelected: _selectedTabIndex == 0,
-                    onTap: () => setState(() => _selectedTabIndex = 0),
-                  ),
-                ),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: _TabBarChip(
-                    label: 'Special items',
-                    isSelected: _selectedTabIndex == 1,
-                    onTap: () => setState(() => _selectedTabIndex = 1),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
           Expanded(
             child: _loading
                 ? const Center(
@@ -180,19 +147,12 @@ class _ManageItemsScreenState extends State<ManageItemsScreen> {
                 : RefreshIndicator(
                     onRefresh: _load,
                     color: AppTheme.primaryBlue,
-                    child: _selectedTabIndex == 0
-                        ? _NormalItemsList(
-                            items: _filteredNormal,
-                            emptyMessage: !SupabaseConfig.isConfigured
-                                ? 'Sign in and add items to see them here.'
-                                : 'No normal items yet. Tap Add new item.',
-                          )
-                        : _SpecialItemsList(
-                            categoriesWithItems: _filteredSpecial,
-                            emptyMessage: !SupabaseConfig.isConfigured
-                                ? 'Sign in and add category-based items.'
-                                : 'No special items yet. Add item → Category-Based.',
-                          ),
+                    child: _SheetItemsList(
+                      typesWithItems: _filtered,
+                      emptyMessage: !SupabaseConfig.isConfigured
+                          ? 'Sign in and add items to see them here.'
+                          : 'No items yet. Tap Add new item.',
+                    ),
                   ),
           ),
           SafeArea(
@@ -231,67 +191,18 @@ class _ManageItemsScreenState extends State<ManageItemsScreen> {
 
 }
 
-String _statusLabel(int quantity) {
-  if (quantity == 0) return 'Out of stock';
-  if (quantity < AppConstants.lowStockThreshold) return 'Low stock';
-  return 'In stock';
-}
-
-Color _statusColor(int quantity) {
-  if (quantity == 0) return const Color(0xFFFF5252);
-  if (quantity < AppConstants.lowStockThreshold) return const Color(0xFFE65100);
-  return const Color(0xFF2E7D32);
-}
-
-class _TabBarChip extends StatelessWidget {
-  final String label;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  const _TabBarChip({
-    required this.label,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        decoration: BoxDecoration(
-          color: isSelected ? AppTheme.primaryBlue : Colors.transparent,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Center(
-          child: Text(
-            label,
-            style: TextStyle(
-              color: isSelected ? Colors.white : AppTheme.textSecondary,
-              fontSize: 14,
-              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _NormalItemsList extends StatelessWidget {
-  final List<StockItem> items;
+class _SheetItemsList extends StatelessWidget {
+  final List<MapEntry<StockItemType, List<StockSheetItem>>> typesWithItems;
   final String emptyMessage;
 
-  const _NormalItemsList({
-    required this.items,
+  const _SheetItemsList({
+    required this.typesWithItems,
     required this.emptyMessage,
   });
 
   @override
   Widget build(BuildContext context) {
-    if (items.isEmpty) {
+    if (typesWithItems.isEmpty) {
       return ListView(
         padding: const EdgeInsets.only(bottom: 8),
         children: [
@@ -309,88 +220,42 @@ class _NormalItemsList extends StatelessWidget {
         ],
       );
     }
-    return ListView.builder(
-      itemCount: items.length,
-      padding: const EdgeInsets.only(bottom: 8),
-      itemBuilder: (context, index) {
-        final item = items[index];
-        return _InventoryTile(
-          name: item.name,
-          sku: item.sku ?? '—',
-          quantity: item.quantity,
-          statusLabel: _statusLabel(item.quantity),
-          statusColor: _statusColor(item.quantity),
-          onTap: () => context.push(AppConstants.itemDetailsRoute),
-        );
-      },
-    );
-  }
-}
 
-class _SpecialItemsList extends StatelessWidget {
-  final List<MapEntry<ItemCategory, List<StockItem>>> categoriesWithItems;
-  final String emptyMessage;
-
-  const _SpecialItemsList({
-    required this.categoriesWithItems,
-    required this.emptyMessage,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    if (categoriesWithItems.isEmpty) {
-      return ListView(
-        padding: const EdgeInsets.only(bottom: 8),
-        children: [
-          const SizedBox(height: 32),
-          Center(
-            child: Text(
-              emptyMessage,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: AppTheme.textSecondary,
-                fontSize: 14,
-              ),
-            ),
-          ),
-        ],
-      );
-    }
     return ListView(
       padding: const EdgeInsets.only(bottom: 8),
       children: [
-        for (final entry in categoriesWithItems) ...[
+        for (final entry in typesWithItems) ...[
           Padding(
             padding: const EdgeInsets.only(bottom: 8, top: 4),
             child: Row(
               children: [
-                Icon(
-                  Icons.category_rounded,
-                  size: 18,
-                  color: AppTheme.primaryBlue,
-                ),
+                _TypeThumb(url: entry.key.imageUrl),
                 const SizedBox(width: 8),
-                Text(
-                  entry.key.name,
-                  style: const TextStyle(
-                    color: AppTheme.textPrimary,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.5,
+                Expanded(
+                  child: Text(
+                    entry.key.name,
+                    style: const TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.5,
+                    ),
                   ),
                 ),
               ],
             ),
           ),
           ...entry.value.map(
-            (item) => _InventoryTile(
-              name: item.name,
-              sku: item.sku ?? '—',
-              quantity: item.quantity,
-              statusLabel: _statusLabel(item.quantity),
-              statusColor: _statusColor(item.quantity),
-              categoryName: entry.key.name,
-              onTap: () => context.push(AppConstants.itemDetailsRoute),
+            (item) => _SheetItemTile(
+              itemId: item.id,
+              code: item.code,
+              finish: item.finish,
+              qty10ft: item.qty10ft,
+              qty12ft: item.qty12ft,
+              onTap: () => context.push(
+                AppConstants.itemDetailsRoute,
+                extra: <String, dynamic>{'itemId': item.id},
+              ),
             ),
           ),
           const SizedBox(height: 12),
@@ -400,22 +265,59 @@ class _SpecialItemsList extends StatelessWidget {
   }
 }
 
-class _InventoryTile extends StatelessWidget {
-  final String name;
-  final String sku;
-  final int quantity;
-  final String statusLabel;
-  final Color statusColor;
-  final String? categoryName;
+class _TypeThumb extends StatelessWidget {
+  final String? url;
+
+  const _TypeThumb({required this.url});
+
+  @override
+  Widget build(BuildContext context) {
+    final trimmed = url?.trim();
+    final hasUrl = trimmed != null && trimmed.isNotEmpty;
+
+    if (!hasUrl) {
+      return const Icon(
+        Icons.view_in_ar_rounded,
+        size: 18,
+        color: AppTheme.primaryBlue,
+      );
+    }
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(6),
+      child: SizedBox(
+        width: 18,
+        height: 18,
+        child: Image.network(
+          trimmed,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            return const Icon(
+              Icons.view_in_ar_rounded,
+              size: 18,
+              color: AppTheme.primaryBlue,
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _SheetItemTile extends StatelessWidget {
+  final String itemId;
+  final String code;
+  final String finish;
+  final int qty10ft;
+  final int qty12ft;
   final VoidCallback? onTap;
 
-  const _InventoryTile({
-    required this.name,
-    required this.sku,
-    required this.quantity,
-    required this.statusLabel,
-    required this.statusColor,
-    this.categoryName,
+  const _SheetItemTile({
+    required this.itemId,
+    required this.code,
+    required this.finish,
+    required this.qty10ft,
+    required this.qty12ft,
     this.onTap,
   });
 
@@ -437,12 +339,12 @@ class _InventoryTile extends StatelessWidget {
                   width: 48,
                   height: 48,
                   decoration: BoxDecoration(
-                    color: statusColor.withValues(alpha: 0.2),
+                    color: AppTheme.primaryBlue.withValues(alpha: 0.18),
                     borderRadius: BorderRadius.circular(14),
                   ),
-                  child: Icon(
-                    Icons.inventory_2_rounded,
-                    color: statusColor,
+                  child: const Icon(
+                    Icons.qr_code_2_rounded,
+                    color: AppTheme.primaryBlue,
                     size: 26,
                   ),
                 ),
@@ -452,52 +354,27 @@ class _InventoryTile extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        name,
+                        code,
                         style: const TextStyle(
                           color: AppTheme.textPrimary,
                           fontSize: 15,
-                          fontWeight: FontWeight.w600,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
-                      if (categoryName != null) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          categoryName!,
-                          style: const TextStyle(
-                            color: AppTheme.textSecondary,
-                            fontSize: 12,
-                          ),
+                      const SizedBox(height: 2),
+                      Text(
+                        finish,
+                        style: const TextStyle(
+                          color: AppTheme.textSecondary,
+                          fontSize: 12,
                         ),
-                      ],
-                      const SizedBox(height: 4),
+                      ),
+                      const SizedBox(height: 8),
                       Row(
                         children: [
-                          Text(
-                            sku,
-                            style: const TextStyle(
-                              color: AppTheme.textSecondary,
-                              fontSize: 12,
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: statusColor.withValues(alpha: 0.2),
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                            child: Text(
-                              statusLabel,
-                              style: TextStyle(
-                                color: statusColor,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
+                          _QtyPill(label: '10ft', value: qty10ft),
+                          const SizedBox(width: 8),
+                          _QtyPill(label: '12ft', value: qty12ft),
                         ],
                       ),
                     ],
@@ -511,6 +388,32 @@ class _InventoryTile extends StatelessWidget {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _QtyPill extends StatelessWidget {
+  final String label;
+  final int value;
+
+  const _QtyPill({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppTheme.borderColor.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        '$label: $value',
+        style: const TextStyle(
+          color: AppTheme.textSecondary,
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
         ),
       ),
     );

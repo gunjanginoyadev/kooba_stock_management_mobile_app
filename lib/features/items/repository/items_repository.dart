@@ -13,25 +13,52 @@ class ItemsRepository {
 
   String? get _userId => _client.auth.currentUser?.id;
 
+  Future<String?> getMyFullName() async {
+    if (!_isAvailable || _userId == null) return null;
+    final res = await _client
+        .from('profiles')
+        .select('full_name')
+        .eq('id', _userId!)
+        .maybeSingle();
+    if (res == null) return null;
+    final name = res['full_name'] as String?;
+    if (name == null || name.trim().isEmpty) return null;
+    return name.trim();
+  }
+
   /// Get or create category by name for current user. Returns category id.
-  Future<String> getOrCreateCategoryId(String categoryName) async {
+  Future<String> getOrCreateCategoryId(
+    String categoryName, {
+    String? imageUrl,
+  }) async {
     if (!_isAvailable || _userId == null) throw _notConfigured();
     final name = categoryName.trim();
     if (name.isEmpty) throw ArgumentError('Category name is required');
 
     final existing = await _client
         .from('item_categories')
-        .select('id')
+        .select('id, image_url')
         .eq('user_id', _userId!)
         .eq('name', name)
         .maybeSingle();
 
     if (existing != null && existing['id'] != null) {
+      final trimmedUrl = imageUrl?.trim();
+      final urlToSet = (trimmedUrl == null || trimmedUrl.isEmpty)
+          ? null
+          : trimmedUrl;
+      final currentUrl = existing['image_url'] as String?;
+      if (urlToSet != null && (currentUrl == null || currentUrl.isEmpty)) {
+        await _client.from('item_categories').update({
+          'image_url': urlToSet,
+        }).eq('id', existing['id']);
+      }
       return existing['id'] as String;
     }
 
     final insert = await _client.from('item_categories').insert({
       'name': name,
+      'image_url': imageUrl?.trim().isEmpty == true ? null : imageUrl?.trim(),
       'user_id': _userId!,
     }).select('id').single();
 
@@ -85,6 +112,7 @@ class ItemsRepository {
   Future<StockItem> addSpecialItem({
     required String categoryName,
     required String itemName,
+    String? categoryImageUrl,
     String? sku,
     int quantity = 0,
   }) async {
@@ -94,7 +122,10 @@ class ItemsRepository {
     if (cat.isEmpty) throw ArgumentError('Category name is required');
     if (item.isEmpty) throw ArgumentError('Item name is required');
 
-    final categoryId = await getOrCreateCategoryId(cat);
+    final categoryId = await getOrCreateCategoryId(
+      cat,
+      imageUrl: categoryImageUrl,
+    );
 
     if (await itemNameExists(item)) {
       throw Exception('An item with this name already exists (as normal or under a category).');
@@ -208,5 +239,293 @@ class ItemsRepository {
 
   Exception _notConfigured() {
     return Exception('Supabase not configured or user not signed in');
+  }
+
+  // ----------------------------------------------------------------------------
+  // Excel-style stock (types + items_v2)
+  // ----------------------------------------------------------------------------
+
+  Future<List<StockItemType>> getItemTypes() async {
+    if (!_isAvailable || _userId == null) return [];
+    final res = await _client
+        .from('item_types')
+        .select()
+        .order('name');
+
+    return (res as List)
+        .map((e) => StockItemType.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<String> getOrCreateTypeId({
+    required String typeName,
+    String? imageUrl,
+    String? remark,
+  }) async {
+    if (!_isAvailable || _userId == null) throw _notConfigured();
+    final name = typeName.trim();
+    if (name.isEmpty) throw ArgumentError('Type name is required');
+
+    final existing = await _client
+        .from('item_types')
+        .select('id, image_url, remark')
+        .eq('name', name)
+        .maybeSingle();
+
+    final normalizedUrl = (imageUrl?.trim().isEmpty ?? true) ? null : imageUrl!.trim();
+    final normalizedRemark = (remark?.trim().isEmpty ?? true) ? null : remark!.trim();
+
+    if (existing != null && existing['id'] != null) {
+      final id = existing['id'] as String;
+      final currentUrl = existing['image_url'] as String?;
+      final currentRemark = existing['remark'] as String?;
+      final shouldUpdate =
+          (normalizedUrl != null && (currentUrl == null || currentUrl.isEmpty)) ||
+          (normalizedRemark != null && (currentRemark == null || currentRemark.isEmpty));
+      if (shouldUpdate) {
+        await _client.from('item_types').update({
+          if (normalizedUrl != null) 'image_url': normalizedUrl,
+          if (normalizedRemark != null) 'remark': normalizedRemark,
+        }).eq('id', id);
+      }
+      return id;
+    }
+
+    final insert = await _client.from('item_types').insert({
+      'name': name,
+      'image_url': normalizedUrl,
+      'remark': normalizedRemark,
+      'user_id': _userId!,
+    }).select('id').single();
+
+    return insert['id'].toString();
+  }
+
+  Future<StockSheetItem> addStockSheetItem({
+    required String typeName,
+    String? typeImageUrl,
+    required String code,
+    required String finish,
+    int qty10ft = 0,
+    int qty12ft = 0,
+    String? remark,
+  }) async {
+    if (!_isAvailable || _userId == null) throw _notConfigured();
+    final t = typeName.trim();
+    final c = code.trim();
+    final f = finish.trim();
+    if (t.isEmpty) throw ArgumentError('Type is required');
+    if (c.isEmpty) throw ArgumentError('Code is required');
+    if (f.isEmpty) throw ArgumentError('Finish is required');
+
+    final typeId = await getOrCreateTypeId(
+      typeName: t,
+      imageUrl: typeImageUrl,
+    );
+
+    final res = await _client.from('items_v2').insert({
+      'type_id': typeId,
+      'code': c,
+      'finish': f,
+      'qty_10ft': qty10ft,
+      'qty_12ft': qty12ft,
+      'remark': remark?.trim().isEmpty == true ? null : remark?.trim(),
+      'user_id': _userId!,
+    }).select('*, item_types(name, image_url)').single();
+
+    return StockSheetItem.fromJson(Map<String, dynamic>.from(res));
+  }
+
+  Future<List<StockSheetItem>> getStockSheetItems() async {
+    if (!_isAvailable || _userId == null) return [];
+    final res = await _client
+        .from('items_v2')
+        .select('*, item_types(name, image_url)')
+        .order('created_at', ascending: false);
+
+    return (res as List)
+        .map((e) => StockSheetItem.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<void> recordStockEntry({
+    required String itemId,
+    required String entryType, // 'in' | 'out'
+    required int delta10ft,
+    required int delta12ft,
+    String? location,
+    String? notes,
+  }) async {
+    if (!_isAvailable || _userId == null) throw _notConfigured();
+    if (entryType != 'in' && entryType != 'out') {
+      throw ArgumentError('Invalid entry type');
+    }
+    if (delta10ft == 0 && delta12ft == 0) {
+      throw ArgumentError('Enter at least one quantity');
+    }
+
+    final item = await _client
+        .from('items_v2')
+        .select('qty_10ft, qty_12ft')
+        .eq('id', itemId)
+        .single();
+
+    final current10 = (item['qty_10ft'] as num?)?.toInt() ?? 0;
+    final current12 = (item['qty_12ft'] as num?)?.toInt() ?? 0;
+
+    final sign = entryType == 'in' ? 1 : -1;
+    final next10 = current10 + (sign * delta10ft);
+    final next12 = current12 + (sign * delta12ft);
+    if (next10 < 0 || next12 < 0) {
+      throw Exception('Not enough stock for this operation');
+    }
+
+    await _client.from('items_v2').update({
+      'qty_10ft': next10,
+      'qty_12ft': next12,
+    }).eq('id', itemId);
+
+    final enteredByName = await getMyFullName();
+
+    await _client.from('stock_entries_v2').insert({
+      'item_id': itemId,
+      'entry_type': entryType,
+      'delta_10ft': delta10ft,
+      'delta_12ft': delta12ft,
+      'entered_by_name': enteredByName,
+      'location': location?.trim().isEmpty == true ? null : location?.trim(),
+      'notes': notes?.trim().isEmpty == true ? null : notes?.trim(),
+      'user_id': _userId!,
+    });
+  }
+
+  Future<StockSheetItem?> getStockSheetItemById(String itemId) async {
+    if (!_isAvailable || _userId == null) return null;
+    final res = await _client
+        .from('items_v2')
+        .select('*, item_types(name, image_url)')
+        .eq('id', itemId)
+        .maybeSingle();
+    if (res == null) return null;
+    return StockSheetItem.fromJson(Map<String, dynamic>.from(res));
+  }
+
+  Future<List<StockEntryV2>> getStockEntries({
+    int limit = 50,
+    String? entryType, // 'in' | 'out'
+    DateTime? since,
+    String? itemId,
+  }) async {
+    if (!_isAvailable || _userId == null) return [];
+    var q = _client
+        .from('stock_entries_v2')
+        .select(
+          'id, item_id, entry_type, delta_10ft, delta_12ft, location, notes, created_at, items_v2(code, finish, item_types(name))',
+        );
+
+    if (entryType != null && entryType.isNotEmpty) {
+      q = q.eq('entry_type', entryType);
+    }
+    if (itemId != null && itemId.isNotEmpty) {
+      q = q.eq('item_id', itemId);
+    }
+    if (since != null) {
+      q = q.gte('created_at', since.toUtc().toIso8601String());
+    }
+
+    final res = await q.order('created_at', ascending: false).limit(limit);
+    return (res as List)
+        .map((e) => StockEntryV2.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<StockEntryV2?> getStockEntryById(String entryId) async {
+    if (!_isAvailable || _userId == null) return null;
+    final res = await _client
+        .from('stock_entries_v2')
+        .select(
+          'id, item_id, entry_type, delta_10ft, delta_12ft, location, notes, created_at, entered_by_name, items_v2(code, finish, item_types(name, image_url))',
+        )
+        .eq('id', entryId)
+        .maybeSingle();
+    if (res == null) return null;
+    return StockEntryV2.fromJson(Map<String, dynamic>.from(res));
+  }
+
+  Future<void> updateStockEntry({
+    required String entryId,
+    required int newDelta10ft,
+    required int newDelta12ft,
+    String? newLocation,
+    String? newNotes,
+  }) async {
+    if (!_isAvailable || _userId == null) throw _notConfigured();
+    final existing = await getStockEntryById(entryId);
+    if (existing == null) throw Exception('Entry not found');
+
+    if (newDelta10ft == 0 && newDelta12ft == 0) {
+      throw ArgumentError('Enter at least one quantity');
+    }
+
+    final item = await _client
+        .from('items_v2')
+        .select('qty_10ft, qty_12ft')
+        .eq('id', existing.itemId)
+        .single();
+
+    final current10 = (item['qty_10ft'] as num?)?.toInt() ?? 0;
+    final current12 = (item['qty_12ft'] as num?)?.toInt() ?? 0;
+
+    final sign = existing.entryType == 'in' ? 1 : -1;
+    final diff10 = newDelta10ft - existing.delta10ft;
+    final diff12 = newDelta12ft - existing.delta12ft;
+
+    final next10 = current10 + (sign * diff10);
+    final next12 = current12 + (sign * diff12);
+    if (next10 < 0 || next12 < 0) {
+      throw Exception('Not enough stock for this operation');
+    }
+
+    await _client.from('items_v2').update({
+      'qty_10ft': next10,
+      'qty_12ft': next12,
+    }).eq('id', existing.itemId);
+
+    await _client.from('stock_entries_v2').update({
+      'delta_10ft': newDelta10ft,
+      'delta_12ft': newDelta12ft,
+      'location': newLocation?.trim().isEmpty == true ? null : newLocation?.trim(),
+      'notes': newNotes?.trim().isEmpty == true ? null : newNotes?.trim(),
+      'entered_by_name': await getMyFullName(),
+    }).eq('id', entryId);
+  }
+
+  Future<void> deleteStockEntry(String entryId) async {
+    if (!_isAvailable || _userId == null) throw _notConfigured();
+    final existing = await getStockEntryById(entryId);
+    if (existing == null) return;
+
+    final item = await _client
+        .from('items_v2')
+        .select('qty_10ft, qty_12ft')
+        .eq('id', existing.itemId)
+        .single();
+
+    final current10 = (item['qty_10ft'] as num?)?.toInt() ?? 0;
+    final current12 = (item['qty_12ft'] as num?)?.toInt() ?? 0;
+
+    final sign = existing.entryType == 'in' ? 1 : -1;
+    final next10 = current10 - (sign * existing.delta10ft);
+    final next12 = current12 - (sign * existing.delta12ft);
+    if (next10 < 0 || next12 < 0) {
+      throw Exception('Cannot delete: would make stock negative');
+    }
+
+    await _client.from('items_v2').update({
+      'qty_10ft': next10,
+      'qty_12ft': next12,
+    }).eq('id', existing.itemId);
+
+    await _client.from('stock_entries_v2').delete().eq('id', entryId);
   }
 }

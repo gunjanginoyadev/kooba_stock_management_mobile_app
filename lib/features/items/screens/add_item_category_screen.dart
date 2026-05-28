@@ -18,10 +18,13 @@ class AddItemCategoryScreen extends StatefulWidget {
 
 class _AddItemCategoryScreenState extends State<AddItemCategoryScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
-  final _categoryNameController = TextEditingController();
-  final _subcategoryController = TextEditingController();
-  bool _isCategoryBased = false;
+  final _typeController = TextEditingController();
+  final _typeImageUrlController = TextEditingController();
+  final _codeController = TextEditingController();
+  final _finishController = TextEditingController();
+  final _qty10ftController = TextEditingController(text: '0');
+  final _qty12ftController = TextEditingController(text: '0');
+  final _remarkController = TextEditingController();
   bool _isSaving = false;
   final _repository = ItemsRepository();
 
@@ -39,11 +42,33 @@ class _AddItemCategoryScreenState extends State<AddItemCategoryScreen> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    _typeImageUrlController.addListener(() {
+      if (!mounted) return;
+      setState(() {});
+    });
+  }
+
+  @override
   void dispose() {
-    _nameController.dispose();
-    _categoryNameController.dispose();
-    _subcategoryController.dispose();
+    _typeController.dispose();
+    _typeImageUrlController.dispose();
+    _codeController.dispose();
+    _finishController.dispose();
+    _qty10ftController.dispose();
+    _qty12ftController.dispose();
+    _remarkController.dispose();
     super.dispose();
+  }
+
+  static bool _isProbablyHttpUrl(String input) {
+    final trimmed = input.trim();
+    final uri = Uri.tryParse(trimmed);
+    if (uri == null) return false;
+    return uri.hasScheme &&
+        (uri.scheme == 'http' || uri.scheme == 'https') &&
+        (uri.host.isNotEmpty);
   }
 
   Future<void> _save() async {
@@ -61,23 +86,21 @@ class _AddItemCategoryScreenState extends State<AddItemCategoryScreen> {
     }
     setState(() => _isSaving = true);
     try {
-      if (_isCategoryBased) {
-        await _repository.addSpecialItem(
-          categoryName: _categoryNameController.text.trim(),
-          itemName: _subcategoryController.text.trim(),
-        );
-        if (mounted) {
-          ToastHelper.success(context, 'Item added under category');
-          context.pop();
-        }
-      } else {
-        await _repository.addNormalItem(
-          name: _nameController.text.trim(),
-        );
-        if (mounted) {
-          ToastHelper.success(context, 'Normal item added');
-          context.pop();
-        }
+      final qty10 = int.tryParse(_qty10ftController.text.trim()) ?? 0;
+      final qty12 = int.tryParse(_qty12ftController.text.trim()) ?? 0;
+
+      await _repository.addStockSheetItem(
+        typeName: _typeController.text.trim(),
+        typeImageUrl: _typeImageUrlController.text.trim(),
+        code: _codeController.text.trim(),
+        finish: _finishController.text.trim(),
+        qty10ft: qty10,
+        qty12ft: qty12,
+        remark: _remarkController.text.trim(),
+      );
+      if (mounted) {
+        ToastHelper.success(context, 'Item added');
+        context.pop();
       }
     } catch (e) {
       if (mounted) {
@@ -91,6 +114,7 @@ class _AddItemCategoryScreenState extends State<AddItemCategoryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final previewUrl = _typeImageUrlController.text.trim();
     return AppScaffold(
       child: Form(
         key: _formKey,
@@ -125,80 +149,171 @@ class _AddItemCategoryScreenState extends State<AddItemCategoryScreen> {
                 ],
               ),
               const SizedBox(height: 24),
-              Text(
-                'ITEM TYPE',
-                style: const TextStyle(
-                  color: AppTheme.textSecondary,
-                  fontSize: 12,
-                  letterSpacing: 1.6,
-                ),
+              AppTextField(
+                controller: _typeController,
+                label: 'Type (Die/Profile)',
+                hintText: 'e.g. HETVA DIE 2001',
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Please enter type';
+                  }
+                  return null;
+                },
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 20),
+              AppTextField(
+                controller: _typeImageUrlController,
+                label: 'Type Image URL (optional)',
+                hintText: 'https://…',
+                keyboardType: TextInputType.url,
+                validator: (value) {
+                  final v = value?.trim() ?? '';
+                  if (v.isEmpty) return null;
+                  if (!_isProbablyHttpUrl(v)) return 'Please enter a valid URL';
+                  return null;
+                },
+              ),
+              if (previewUrl.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Stack(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: AspectRatio(
+                        aspectRatio: 16 / 9,
+                        child: Image.network(
+                          previewUrl,
+                          fit: BoxFit.cover,
+                          loadingBuilder: (context, child, progress) {
+                            if (progress == null) return child;
+                            return Container(
+                              color: AppTheme.cardBackground,
+                              alignment: Alignment.center,
+                              child: const SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.6,
+                                  color: AppTheme.primaryBlue,
+                                ),
+                              ),
+                            );
+                          },
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(
+                              color: AppTheme.cardBackground,
+                              alignment: Alignment.center,
+                              child: const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.broken_image_outlined,
+                                    color: AppTheme.textSecondary,
+                                  ),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'Image failed to load',
+                                    style: TextStyle(
+                                      color: AppTheme.textSecondary,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      top: 10,
+                      right: 10,
+                      child: Material(
+                        color: Colors.black.withValues(alpha: 0.55),
+                        borderRadius: BorderRadius.circular(999),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(999),
+                          onTap: () => _typeImageUrlController.clear(),
+                          child: const Padding(
+                            padding: EdgeInsets.all(8),
+                            child: Icon(
+                              Icons.close_rounded,
+                              size: 18,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 20),
+              AppTextField(
+                controller: _codeController,
+                label: 'Code',
+                hintText: 'e.g. KLF-07',
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Please enter code';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 20),
+              AppTextField(
+                controller: _finishController,
+                label: 'Finish',
+                hintText: 'e.g. BRUSH GOLD',
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Please enter finish';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 20),
               Row(
                 children: [
-                  _TypeChip(
-                    label: 'Normal Item',
-                    isSelected: !_isCategoryBased,
-                    onTap: () {
-                      setState(() => _isCategoryBased = false);
-                    },
+                  Expanded(
+                    child: AppTextField(
+                      controller: _qty10ftController,
+                      label: 'Qty (10 ft)',
+                      hintText: '0',
+                      keyboardType: TextInputType.number,
+                      validator: (value) {
+                        final v = value?.trim() ?? '';
+                        if (v.isEmpty) return 'Enter qty';
+                        final n = int.tryParse(v);
+                        if (n == null || n < 0) return 'Invalid qty';
+                        return null;
+                      },
+                    ),
                   ),
-                  const SizedBox(width: 8),
-                  _TypeChip(
-                    label: 'Category-Based',
-                    isSelected: _isCategoryBased,
-                    onTap: () {
-                      setState(() => _isCategoryBased = true);
-                    },
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: AppTextField(
+                      controller: _qty12ftController,
+                      label: 'Qty (12 ft)',
+                      hintText: '0',
+                      keyboardType: TextInputType.number,
+                      validator: (value) {
+                        final v = value?.trim() ?? '';
+                        if (v.isEmpty) return 'Enter qty';
+                        final n = int.tryParse(v);
+                        if (n == null || n < 0) return 'Invalid qty';
+                        return null;
+                      },
+                    ),
                   ),
                 ],
               ),
-              const SizedBox(height: 24),
-              if (!_isCategoryBased) ...[
-                AppTextField(
-                  controller: _nameController,
-                  label: 'Item Name',
-                  hintText: 'e.g. Buff Board',
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please enter item name';
-                    }
-                    return null;
-                  },
-                ),
-              ] else ...[
-                AppTextField(
-                  controller: _categoryNameController,
-                  label: 'Category Name',
-                  hintText: 'e.g. Ply',
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please enter category name';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 20),
-                AppTextField(
-                  controller: _subcategoryController,
-                  label: 'Sub-Category',
-                  hintText: 'e.g. Ply – 4x8',
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please enter at least one sub-category';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Sub-categories are added as free text. Duplicate names under the same category are not allowed.',
-                  style: TextStyle(
-                    color: AppTheme.textSecondary,
-                    fontSize: 12,
-                  ),
-                ),
-              ],
+              const SizedBox(height: 20),
+              AppTextField(
+                controller: _remarkController,
+                label: 'Remark (optional)',
+                hintText: 'e.g. Old / New / Notes',
+              ),
               const SizedBox(height: 32),
               AppPrimaryButton(
                 label: 'Save Item',
@@ -213,43 +328,4 @@ class _AddItemCategoryScreenState extends State<AddItemCategoryScreen> {
     );
   }
 }
-
-class _TypeChip extends StatelessWidget {
-  final String label;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  const _TypeChip({
-    required this.label,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          height: 44,
-          decoration: BoxDecoration(
-            color: isSelected ? AppTheme.primaryBlue : AppTheme.cardBackground,
-            borderRadius: BorderRadius.circular(22),
-          ),
-          child: Center(
-            child: Text(
-              label,
-              style: TextStyle(
-                color: isSelected ? Colors.white : AppTheme.textSecondary,
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 

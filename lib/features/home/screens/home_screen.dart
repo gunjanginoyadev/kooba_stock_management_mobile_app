@@ -4,12 +4,64 @@ import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_scaffold.dart';
+import '../../items/models/item_models.dart';
+import '../../items/repository/items_repository.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
   @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  final _repo = ItemsRepository();
+  bool _loading = true;
+  List<StockSheetItem> _items = const [];
+  List<StockEntryV2> _recentEntries = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  int _totalQty(StockSheetItem i) => i.qty10ft + i.qty12ft;
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      final items = await _repo.getStockSheetItems();
+      final entries = await _repo.getStockEntries(limit: 1);
+      if (!mounted) return;
+      setState(() {
+        _items = items;
+        _recentEntries = entries;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _items = const [];
+        _recentEntries = const [];
+        _loading = false;
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final totalItems = _items.length;
+    final lowStock = _items.where((i) {
+      final total = _totalQty(i);
+      return total > 0 && total < AppConstants.lowStockThreshold;
+    }).toList();
+    final outOfStock = _items.where((i) => _totalQty(i) == 0).toList();
+    final normalStock = _items
+        .where((i) => _totalQty(i) >= AppConstants.lowStockThreshold)
+        .take(8)
+        .toList();
+
     return AppScaffold(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -32,22 +84,37 @@ class HomeScreen extends StatelessWidget {
           Row(
             children: const [
               Expanded(
-                child: _SummaryChip(label: 'Total Items', value: '142'),
+                child: SizedBox(),
               ),
               SizedBox(width: 8),
+              Expanded(
+                child: SizedBox(),
+              ),
+              SizedBox(width: 8),
+              Expanded(
+                child: SizedBox(),
+              ),
+            ],
+          ),
+          Row(
+            children: [
+              Expanded(
+                child: _SummaryChip(label: 'Total Items', value: '$totalItems'),
+              ),
+              const SizedBox(width: 8),
               Expanded(
                 child: _SummaryChip(
                   label: 'Low Stock',
-                  value: '18',
-                  color: Color(0xFFFFC107),
+                  value: '${lowStock.length}',
+                  color: const Color(0xFFFFC107),
                 ),
               ),
-              SizedBox(width: 8),
+              const SizedBox(width: 8),
               Expanded(
                 child: _SummaryChip(
                   label: 'Out of Stock',
-                  value: '5',
-                  color: Color(0xFFFF5252),
+                  value: '${outOfStock.length}',
+                  color: const Color(0xFFFF5252),
                 ),
               ),
             ],
@@ -60,56 +127,50 @@ class HomeScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const SizedBox(height: 8),
-                  const _SectionHeader(
-                    title: 'Out of Stock',
-                    color: Color(0xFFFF5252),
-                  ),
-                  const _StockTile(
-                    name: 'Leather – Thin',
-                    statusLabel: 'Out of Stock',
-                    statusColor: Color(0xFFFF5252),
-                    quantityLabel: '0 units',
-                  ),
-                  const _StockTile(
-                    name: 'Fevicol 5kg',
-                    statusLabel: 'Out of Stock',
-                    statusColor: Color(0xFFFF5252),
-                    quantityLabel: '0 units',
-                  ),
+                  const _SectionHeader(title: 'Out of Stock', color: Color(0xFFFF5252)),
+                  if (_loading)
+                    const _LoadingBlock()
+                  else if (outOfStock.isEmpty)
+                    const _EmptyBlock(text: 'No out of stock items')
+                  else
+                    ...outOfStock.take(5).map(
+                      (i) => _StockTile(
+                        name: '${i.code} · ${i.finish}',
+                        statusLabel: 'Out of Stock',
+                        statusColor: const Color(0xFFFF5252),
+                        quantityLabel: '10ft:${i.qty10ft} · 12ft:${i.qty12ft}',
+                      ),
+                    ),
                   const SizedBox(height: 16),
-                  const _SectionHeader(
-                    title: 'Low Stock (Below 10)',
-                    color: Color(0xFFFFC107),
-                  ),
-                  const _StockTile(
-                    name: 'M12 Steel Bolt',
-                    statusLabel: 'Low Stock',
-                    statusColor: Color(0xFFFFC107),
-                    quantityLabel: '8 units',
-                  ),
-                  const _StockTile(
-                    name: 'Hex Nut 10mm',
-                    statusLabel: 'Low Stock',
-                    statusColor: Color(0xFFFFC107),
-                    quantityLabel: '6 units',
-                  ),
+                  const _SectionHeader(title: 'Low Stock (Below 10)', color: Color(0xFFFFC107)),
+                  if (_loading)
+                    const _LoadingBlock()
+                  else if (lowStock.isEmpty)
+                    const _EmptyBlock(text: 'No low stock items')
+                  else
+                    ...lowStock.take(5).map(
+                      (i) => _StockTile(
+                        name: '${i.code} · ${i.finish}',
+                        statusLabel: 'Low Stock',
+                        statusColor: const Color(0xFFFFC107),
+                        quantityLabel: '10ft:${i.qty10ft} · 12ft:${i.qty12ft}',
+                      ),
+                    ),
                   const SizedBox(height: 16),
-                  const _SectionHeader(
-                    title: 'Normal Stock',
-                    color: Color(0xFF3DDC84),
-                  ),
-                  const _StockTile(
-                    name: 'Hammer Blade',
-                    statusLabel: 'In Stock',
-                    statusColor: Color(0xFF3DDC84),
-                    quantityLabel: '120 units',
-                  ),
-                  const _StockTile(
-                    name: 'Buff Board',
-                    statusLabel: 'In Stock',
-                    statusColor: Color(0xFF3DDC84),
-                    quantityLabel: '75 units',
-                  ),
+                  const _SectionHeader(title: 'Normal Stock', color: Color(0xFF3DDC84)),
+                  if (_loading)
+                    const _LoadingBlock()
+                  else if (normalStock.isEmpty)
+                    const _EmptyBlock(text: 'No items yet')
+                  else
+                    ...normalStock.map(
+                      (i) => _StockTile(
+                        name: '${i.code} · ${i.finish}',
+                        statusLabel: 'In Stock',
+                        statusColor: const Color(0xFF3DDC84),
+                        quantityLabel: '10ft:${i.qty10ft} · 12ft:${i.qty12ft}',
+                      ),
+                    ),
                   const SizedBox(height: 24),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -137,65 +198,118 @@ class HomeScreen extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 8),
-                  Container(
-                    decoration: BoxDecoration(
-                      color: AppTheme.cardBackground,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    padding: const EdgeInsets.all(16),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 40,
-                          height: 40,
-                          decoration: const BoxDecoration(
-                            color: Color(0xFF104F2D),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            Icons.arrow_downward_rounded,
-                            color: Color(0xFF3DDC84),
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        const Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Stock In - Warehouse A',
-                                style: TextStyle(
-                                  color: AppTheme.textPrimary,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                              SizedBox(height: 4),
-                              Text(
-                                'Added 50 units of M12 Steel Bolt • Today, 10:00 AM',
-                                style: TextStyle(
-                                  color: AppTheme.textSecondary,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        const Text(
-                          '+50',
-                          style: TextStyle(
-                            color: Color(0xFF3DDC84),
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                  if (_loading)
+                    const _LoadingBlock()
+                  else if (_recentEntries.isEmpty)
+                    const _EmptyBlock(text: 'No recent entries yet')
+                  else
+                    _RecentEntryCard(entry: _recentEntries.first),
                   const SizedBox(height: 24),
                 ],
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LoadingBlock extends StatelessWidget {
+  const _LoadingBlock();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.symmetric(vertical: 18),
+      child: Center(
+        child: CircularProgressIndicator(color: AppTheme.primaryBlue),
+      ),
+    );
+  }
+}
+
+class _EmptyBlock extends StatelessWidget {
+  final String text;
+  const _EmptyBlock({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Center(
+        child: Text(
+          text,
+          style: const TextStyle(color: AppTheme.textSecondary),
+        ),
+      ),
+    );
+  }
+}
+
+class _RecentEntryCard extends StatelessWidget {
+  final StockEntryV2 entry;
+  const _RecentEntryCard({required this.entry});
+
+  @override
+  Widget build(BuildContext context) {
+    final isIn = entry.isIn;
+    final color = isIn ? const Color(0xFF2E7D32) : const Color(0xFFE65100);
+    final icon = isIn ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded;
+    final qtyText = [
+      if (entry.delta10ft != 0) '${isIn ? "+" : "-"}${entry.delta10ft} (10ft)',
+      if (entry.delta12ft != 0) '${isIn ? "+" : "-"}${entry.delta12ft} (12ft)',
+    ].join(' · ');
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppTheme.cardBackground,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.2),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: color),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isIn ? 'Stock In' : 'Stock Out',
+                  style: const TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${entry.itemLabel} • ${entry.createdAt.toLocal()}',
+                  style: const TextStyle(
+                    color: AppTheme.textSecondary,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            qtyText,
+            textAlign: TextAlign.right,
+            style: TextStyle(
+              color: color,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
             ),
           ),
         ],
@@ -332,7 +446,7 @@ class _StockTile extends StatelessWidget {
                         vertical: 2,
                       ),
                       decoration: BoxDecoration(
-                        color: statusColor.withOpacity(0.18),
+                        color: statusColor.withValues(alpha: 0.18),
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text(

@@ -5,6 +5,8 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_primary_button.dart';
 import '../../../core/widgets/app_scaffold.dart';
+import '../../items/models/item_models.dart';
+import '../../items/repository/items_repository.dart';
 
 /// Simple Inventory summary – current stock levels at a glance.
 class ReportFiltersScreen extends StatefulWidget {
@@ -16,9 +18,46 @@ class ReportFiltersScreen extends StatefulWidget {
 
 class _ReportFiltersScreenState extends State<ReportFiltersScreen> {
   String _dateRange = 'Today';
+  final _repo = ItemsRepository();
+  bool _loading = true;
+  List<StockSheetItem> _items = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      final items = await _repo.getStockSheetItems();
+      if (!mounted) return;
+      setState(() {
+        _items = items;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _items = const [];
+        _loading = false;
+      });
+    }
+  }
+
+  int _totalQty(StockSheetItem i) => i.qty10ft + i.qty12ft;
 
   @override
   Widget build(BuildContext context) {
+    final totalItems = _items.length;
+    final outOfStock = _items.where((i) => _totalQty(i) == 0).toList();
+    final lowStock = _items.where((i) {
+      final total = _totalQty(i);
+      return total > 0 && total < AppConstants.lowStockThreshold;
+    }).toList();
+    final inStock = _items.where((i) => _totalQty(i) >= AppConstants.lowStockThreshold).toList();
+
     return AppScaffold(
       appBar: AppBar(
         backgroundColor: AppTheme.darkBackground,
@@ -46,7 +85,7 @@ class _ReportFiltersScreenState extends State<ReportFiltersScreen> {
         children: [
           const SizedBox(height: 8),
           const Text(
-            'Current stock levels. Pick a date to see snapshot.',
+            'Current stock levels. (Snapshot-by-date is coming soon.)',
             style: TextStyle(
               color: AppTheme.textSecondary,
               fontSize: 13,
@@ -90,7 +129,7 @@ class _ReportFiltersScreenState extends State<ReportFiltersScreen> {
               Expanded(
                 child: _SummaryCard(
                   label: 'Total items',
-                  value: '48',
+                  value: _loading ? '—' : '$totalItems',
                   color: AppTheme.primaryBlue,
                 ),
               ),
@@ -98,7 +137,7 @@ class _ReportFiltersScreenState extends State<ReportFiltersScreen> {
               Expanded(
                 child: _SummaryCard(
                   label: 'Low stock',
-                  value: '6',
+                  value: _loading ? '—' : '${lowStock.length}',
                   color: const Color(0xFFE65100),
                 ),
               ),
@@ -110,7 +149,7 @@ class _ReportFiltersScreenState extends State<ReportFiltersScreen> {
               Expanded(
                 child: _SummaryCard(
                   label: 'Out of stock',
-                  value: '2',
+                  value: _loading ? '—' : '${outOfStock.length}',
                   color: const Color(0xFFFF5252),
                 ),
               ),
@@ -118,7 +157,7 @@ class _ReportFiltersScreenState extends State<ReportFiltersScreen> {
               Expanded(
                 child: _SummaryCard(
                   label: 'In stock',
-                  value: '40',
+                  value: _loading ? '—' : '${inStock.length}',
                   color: const Color(0xFF2E7D32),
                 ),
               ),
@@ -136,16 +175,35 @@ class _ReportFiltersScreenState extends State<ReportFiltersScreen> {
           ),
           const SizedBox(height: 10),
           Expanded(
-            child: ListView(
-              children: const [
-                _SummaryRow(name: 'Leather – Thin', qty: 0),
-                _SummaryRow(name: 'Premium Foam XL', qty: 5),
-                _SummaryRow(name: 'MDF 18mm', qty: 8),
-                _SummaryRow(name: 'Adhesive 5L', qty: 6),
-                _SummaryRow(name: 'Hex Nut 10mm', qty: 24),
-                _SummaryRow(name: 'Copper Wire Spool', qty: 12),
-              ],
-            ),
+            child: _loading
+                ? const Center(
+                    child: CircularProgressIndicator(color: AppTheme.primaryBlue),
+                  )
+                : RefreshIndicator(
+                    onRefresh: _load,
+                    color: AppTheme.primaryBlue,
+                    child: lowStock.isEmpty
+                        ? ListView(
+                            children: const [
+                              SizedBox(height: 40),
+                              Center(
+                                child: Text(
+                                  'No low stock items',
+                                  style: TextStyle(color: AppTheme.textSecondary),
+                                ),
+                              ),
+                            ],
+                          )
+                        : ListView(
+                            children: [
+                              for (final i in lowStock.take(30))
+                                _SummaryRow(
+                                  name: '${i.typeName} · ${i.code} · ${i.finish}',
+                                  qty: _totalQty(i),
+                                ),
+                            ],
+                          ),
+                  ),
           ),
           const SizedBox(height: 16),
           AppPrimaryButton(
