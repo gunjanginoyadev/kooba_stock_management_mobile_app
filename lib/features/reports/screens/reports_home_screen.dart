@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
@@ -11,89 +12,129 @@ class ReportsHomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AppScaffold(
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 16),
-            const Text(
-              'Reports',
-              style: TextStyle(
-                color: AppTheme.textPrimary,
-                fontSize: 28,
-                fontWeight: FontWeight.w700,
+      child: ListView(
+        children: [
+          const SizedBox(height: 8),
+          Text(
+            'Insights',
+            style: GoogleFonts.sora(
+              fontSize: 28,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.8,
+              color: AppTheme.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Two taps to a report — export when you need it',
+            style: GoogleFonts.dmSans(
+              color: AppTheme.textSecondary,
+              fontSize: 14,
+            ),
+          ),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              Expanded(
+                child: _BigReportCard(
+                  title: 'Stock in',
+                  subtitle: 'Incoming',
+                  icon: Icons.south_west_rounded,
+                  color: AppTheme.success,
+                  onTap: () => context.push(
+                    AppConstants.stockReportRoute,
+                    extra: <String, String>{'type': 'in'},
+                  ),
+                ),
               ),
-            ),
-            const SizedBox(height: 4),
-            const Text(
-              'View or export by type and date.',
-              style: TextStyle(
-                color: AppTheme.textSecondary,
-                fontSize: 14,
+              const SizedBox(width: 12),
+              Expanded(
+                child: _BigReportCard(
+                  title: 'Stock out',
+                  subtitle: 'Outgoing',
+                  icon: Icons.north_east_rounded,
+                  color: AppTheme.danger,
+                  onTap: () => context.push(
+                    AppConstants.stockReportRoute,
+                    extra: <String, String>{'type': 'out'},
+                  ),
+                ),
               ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _WideReportCard(
+            title: 'Current inventory PDF',
+            subtitle: 'All items with current 10ft / 12ft stock',
+            icon: Icons.inventory_2_outlined,
+            onTap: () => context.push(
+              AppConstants.pdfPreviewRoute,
+              extra: <String, dynamic>{'reportType': 'inventory'},
             ),
-            const SizedBox(height: 24),
-            _ReportTile(
-              title: 'Stock in report',
-              subtitle: 'See what came in',
-              icon: Icons.arrow_downward_rounded,
-              color: const Color(0xFF2E7D32),
-              onTap: () => context.push(
-                AppConstants.stockReportRoute,
-                extra: <String, String>{'type': 'in'},
+          ),
+          const SizedBox(height: 12),
+          _WideReportCard(
+            title: 'Export movement PDF',
+            subtitle: 'Stock in/out for a date range',
+            icon: Icons.picture_as_pdf_outlined,
+            onTap: () => context.push(
+              AppConstants.pdfPreviewRoute,
+              extra: <String, dynamic>{
+                'reportType': 'in',
+                'dateRange': 'Today',
+              },
+            ),
+          ),
+          const SizedBox(height: 28),
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF0F766E), Color(0xFF134E4A)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
+              borderRadius: BorderRadius.circular(22),
             ),
-            const SizedBox(height: 10),
-            _ReportTile(
-              title: 'Stock out report',
-              subtitle: 'See what went out',
-              icon: Icons.arrow_upward_rounded,
-              color: const Color(0xFFE65100),
-              onTap: () => context.push(
-                AppConstants.stockReportRoute,
-                extra: <String, String>{'type': 'out'},
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Tip',
+                  style: GoogleFonts.dmSans(
+                    color: Colors.white.withValues(alpha: 0.75),
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Use Current inventory PDF for live stock levels. Open Stock in/out, pick a date range, then Export PDF for movement history.',
+                  style: GoogleFonts.dmSans(
+                    color: Colors.white,
+                    fontSize: 14,
+                    height: 1.4,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 10),
-            _ReportTile(
-              title: 'Inventory summary',
-              subtitle: 'Current stock levels',
-              icon: Icons.inventory_2_rounded,
-              color: AppTheme.primaryBlue,
-              onTap: () => context.push(AppConstants.reportFiltersRoute),
-            ),
-            const SizedBox(height: 28),
-            const Text(
-              'RECENT EXPORTS',
-              style: TextStyle(
-                color: AppTheme.textSecondary,
-                fontSize: 11,
-                letterSpacing: 1.4,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 10),
-            _ExportTile(
-              title: 'Stock out – Today',
-              date: 'Today, 10:42 AM',
-              onTap: () => context.push(AppConstants.pdfPreviewRoute),
-            ),
-            const SizedBox(height: 24),
-          ],
-        ),
+          ),
+          const SizedBox(height: 24),
+        ],
       ),
     );
   }
 }
 
-class _ReportTile extends StatelessWidget {
+class _BigReportCard extends StatelessWidget {
   final String title;
   final String subtitle;
   final IconData icon;
   final Color color;
   final VoidCallback onTap;
 
-  const _ReportTile({
+  const _BigReportCard({
     required this.title,
     required this.subtitle,
     required this.icon,
@@ -105,51 +146,44 @@ class _ReportTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: AppTheme.cardBackground,
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(22),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-          child: Row(
+        borderRadius: BorderRadius.circular(22),
+        child: Container(
+          height: 150,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: AppTheme.borderColor),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                width: 48,
-                height: 48,
+                width: 42,
+                height: 42,
                 decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.2),
+                  color: color.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: Icon(icon, color: color, size: 26),
+                child: Icon(icon, color: color),
               ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        color: AppTheme.textPrimary,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(
-                        color: AppTheme.textSecondary,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ],
+              const Spacer(),
+              Text(
+                title,
+                style: GoogleFonts.sora(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 17,
+                  color: AppTheme.textPrimary,
                 ),
               ),
-              const Icon(
-                Icons.chevron_right_rounded,
-                color: AppTheme.textSecondary,
-                size: 24,
+              Text(
+                subtitle,
+                style: GoogleFonts.dmSans(
+                  color: AppTheme.textSecondary,
+                  fontSize: 12,
+                ),
               ),
             ],
           ),
@@ -159,14 +193,16 @@ class _ReportTile extends StatelessWidget {
   }
 }
 
-class _ExportTile extends StatelessWidget {
+class _WideReportCard extends StatelessWidget {
   final String title;
-  final String date;
+  final String subtitle;
+  final IconData icon;
   final VoidCallback onTap;
 
-  const _ExportTile({
+  const _WideReportCard({
     required this.title,
-    required this.date,
+    required this.subtitle,
+    required this.icon,
     required this.onTap,
   });
 
@@ -174,26 +210,26 @@ class _ExportTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: AppTheme.cardBackground,
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(20),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: AppTheme.borderColor),
+          ),
           child: Row(
             children: [
               Container(
-                width: 44,
-                height: 44,
+                width: 48,
+                height: 48,
                 decoration: BoxDecoration(
-                  color: AppTheme.primaryBlue.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(12),
+                  color: AppTheme.accentSoft,
+                  borderRadius: BorderRadius.circular(14),
                 ),
-                child: const Icon(
-                  Icons.picture_as_pdf_rounded,
-                  color: AppTheme.primaryBlue,
-                  size: 24,
-                ),
+                child: Icon(icon, color: AppTheme.primaryBlue),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -202,16 +238,15 @@ class _ExportTile extends StatelessWidget {
                   children: [
                     Text(
                       title,
-                      style: const TextStyle(
+                      style: GoogleFonts.dmSans(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
                         color: AppTheme.textPrimary,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                    const SizedBox(height: 2),
                     Text(
-                      date,
-                      style: const TextStyle(
+                      subtitle,
+                      style: GoogleFonts.dmSans(
                         color: AppTheme.textSecondary,
                         fontSize: 12,
                       ),
@@ -219,11 +254,7 @@ class _ExportTile extends StatelessWidget {
                   ],
                 ),
               ),
-              const Icon(
-                Icons.download_rounded,
-                color: AppTheme.textSecondary,
-                size: 22,
-              ),
+              const Icon(Icons.arrow_forward_rounded, color: AppTheme.inkMuted),
             ],
           ),
         ),

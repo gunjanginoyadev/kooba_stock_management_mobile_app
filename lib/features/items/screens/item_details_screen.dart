@@ -38,14 +38,23 @@ class _ItemDetailsScreenState extends State<ItemDetailsScreen> {
       return;
     }
     setState(() => _loading = true);
-    final item = await _repo.getStockSheetItemById(itemId);
-    final entries = await _repo.getStockEntries(limit: 10, itemId: itemId);
-    if (!mounted) return;
-    setState(() {
-      _item = item;
-      _entries = entries;
-      _loading = false;
-    });
+    try {
+      final item = await _repo.getStockSheetItemById(itemId);
+      final entries = await _repo.getStockEntries(limit: 10, itemId: itemId);
+      if (!mounted) return;
+      setState(() {
+        _item = item;
+        _entries = entries;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _item = null;
+        _entries = const [];
+        _loading = false;
+      });
+    }
   }
 
   @override
@@ -220,35 +229,36 @@ class _ItemHeaderCard extends StatelessWidget {
                 const SizedBox(height: 8),
                 Text(
                   '10ft: ${item.qty10ft} · 12ft: ${item.qty12ft}',
-                  style: TextStyle(
-                    color: AppTheme.textSecondary,
-                    fontSize: 13,
-                  ),
+                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
                 ),
                 const SizedBox(height: 14),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
-                    color: (total == 0
-                            ? const Color(0xFFFF5252)
-                            : total < AppConstants.lowStockThreshold
+                    color:
+                        (total == 0
+                                ? const Color(0xFFFF5252)
+                                : total < AppConstants.lowStockThreshold
                                 ? const Color(0xFFFFC107)
                                 : const Color(0xFF2E7D32))
-                        .withValues(alpha: 0.2),
+                            .withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(999),
                   ),
                   child: Text(
                     total == 0
                         ? 'Out of stock'
                         : total < AppConstants.lowStockThreshold
-                            ? 'Low stock'
-                            : 'In stock',
+                        ? 'Low stock'
+                        : 'In stock',
                     style: TextStyle(
                       color: total == 0
                           ? const Color(0xFFFF5252)
                           : total < AppConstants.lowStockThreshold
-                              ? const Color(0xFFFFC107)
-                              : const Color(0xFF2E7D32),
+                          ? const Color(0xFFFFC107)
+                          : const Color(0xFF2E7D32),
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
                     ),
@@ -273,10 +283,7 @@ class _ItemHeaderCard extends StatelessWidget {
               ),
               const Text(
                 'total',
-                style: TextStyle(
-                  color: AppTheme.textSecondary,
-                  fontSize: 12,
-                ),
+                style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
               ),
             ],
           ),
@@ -394,10 +401,7 @@ class _DetailRow extends StatelessWidget {
       children: [
         Text(
           label,
-          style: const TextStyle(
-            color: AppTheme.textSecondary,
-            fontSize: 14,
-          ),
+          style: const TextStyle(color: AppTheme.textSecondary, fontSize: 14),
         ),
         Text(
           value,
@@ -453,11 +457,10 @@ class _HistorySection extends StatelessWidget {
             style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
           )
         else
-          ...entries.take(3).expand(
-                (e) => [
-                  _HistoryTile(entry: e),
-                  const SizedBox(height: 8),
-                ],
+          ...entries
+              .take(3)
+              .expand(
+                (e) => [_HistoryTile(entry: e), const SizedBox(height: 8)],
               ),
       ],
     );

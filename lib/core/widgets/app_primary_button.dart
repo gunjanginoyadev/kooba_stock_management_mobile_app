@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+
 import '../theme/app_theme.dart';
 
-/// A primary CTA button used across the Kooba app.
 class AppPrimaryButton extends StatelessWidget {
   final String label;
   final VoidCallback? onPressed;
@@ -20,10 +21,10 @@ class AppPrimaryButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final child = isLoading
         ? const SizedBox(
-            height: 20,
-            width: 20,
+            height: 22,
+            width: 22,
             child: CircularProgressIndicator(
-              strokeWidth: 2,
+              strokeWidth: 2.4,
               valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
             ),
           )
@@ -37,9 +38,10 @@ class AppPrimaryButton extends StatelessWidget {
               ],
               Text(
                 label,
-                style: const TextStyle(
+                style: GoogleFonts.dmSans(
                   fontSize: 16,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
                 ),
               ),
             ],
@@ -47,14 +49,15 @@ class AppPrimaryButton extends StatelessWidget {
 
     return SizedBox(
       width: double.infinity,
+      height: 54,
       child: ElevatedButton(
         onPressed: isLoading ? null : onPressed,
         style: ElevatedButton.styleFrom(
           backgroundColor: AppTheme.primaryBlue,
           foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(vertical: 16),
+          elevation: 0,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(16),
           ),
         ),
         child: child,
@@ -62,5 +65,3 @@ class AppPrimaryButton extends StatelessWidget {
     );
   }
 }
-
-

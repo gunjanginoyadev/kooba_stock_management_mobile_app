@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
+
 import '../theme/app_theme.dart';
 
-/// Common background and padding used for Kooba auth screens.
 class AppAuthShell extends StatelessWidget {
   final Widget child;
 
@@ -11,13 +11,26 @@ class AppAuthShell extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppTheme.darkBackground,
-      body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 480),
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-              child: child,
+      body: DecoratedBox(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color(0xFF102A27),
+              AppTheme.darkBackground,
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 480),
+              child: SingleChildScrollView(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+                child: child,
+              ),
             ),
           ),
         ),
@@ -25,5 +38,3 @@ class AppAuthShell extends StatelessWidget {
     );
   }
 }
-
-

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../core/config/supabase_config.dart';
+import '../../../core/config/firebase_config.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_scaffold.dart';
@@ -28,7 +28,7 @@ class _ManageItemsScreenState extends State<ManageItemsScreen> {
   }
 
   Future<void> _load() async {
-    if (!SupabaseConfig.isConfigured) {
+    if (!FirebaseConfig.isConfigured) {
       setState(() {
         _typesWithItems = [];
         _loading = false;
@@ -149,7 +149,7 @@ class _ManageItemsScreenState extends State<ManageItemsScreen> {
                     color: AppTheme.primaryBlue,
                     child: _SheetItemsList(
                       typesWithItems: _filtered,
-                      emptyMessage: !SupabaseConfig.isConfigured
+                      emptyMessage: !FirebaseConfig.isConfigured
                           ? 'Sign in and add items to see them here.'
                           : 'No items yet. Tap Add new item.',
                     ),

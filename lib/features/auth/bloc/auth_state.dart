@@ -23,7 +23,7 @@ class AuthUnauthenticated extends AppAuthState {
   const AuthUnauthenticated();
 }
 
-/// Shown after sign-up when Supabase requires email confirmation.
+/// Shown after sign-up when email confirmation is required.
 class AuthEmailConfirmationRequired extends AppAuthState {
   final String email;
 

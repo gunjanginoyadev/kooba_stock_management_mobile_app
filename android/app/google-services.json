@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "366516824804",
+    "project_id": "kooba-stock-management",
+    "storage_bucket": "kooba-stock-management.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:366516824804:android:3fbf9f260221aae0a4daf1",
+        "android_client_info": {
+          "package_name": "com.example.kooba_stock_management_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAj1gQJqmthH4CN6NDscWBdFe2AHzh3rm0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

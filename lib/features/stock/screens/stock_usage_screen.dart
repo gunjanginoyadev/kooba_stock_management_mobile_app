@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/constants/app_constants.dart';
+import '../../../core/stock/stock_refresh_notifier.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_primary_button.dart';
 import '../../../core/widgets/app_scaffold.dart';
@@ -256,6 +257,7 @@ class _StockUsageScreenState extends State<StockUsageScreen> {
         notes: _notesController.text,
       );
       if (!mounted) return;
+      StockRefreshNotifier.instance.notifyStockChanged();
       context.push(
         AppConstants.stockSuccessRoute,
         extra: <String, dynamic>{

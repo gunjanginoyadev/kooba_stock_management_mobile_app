@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 
-import '../../../core/config/supabase_config.dart';
+import '../../../core/config/firebase_config.dart';
+import '../../../core/stock/stock_refresh_notifier.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/app_network_image.dart';
 import '../../../core/widgets/app_primary_button.dart';
 import '../../../core/widgets/app_scaffold.dart';
 import '../../../core/widgets/app_text_field.dart';
@@ -25,20 +28,24 @@ class _AddItemCategoryScreenState extends State<AddItemCategoryScreen> {
   final _qty10ftController = TextEditingController(text: '0');
   final _qty12ftController = TextEditingController(text: '0');
   final _remarkController = TextEditingController();
-  bool _isSaving = false;
   final _repository = ItemsRepository();
+  bool _isSaving = false;
 
-  /// Turns a caught exception into a short, clear message for the user.
   static String _userFriendlySaveError(Object e) {
-    final str = e.toString();
+    final str = e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
     if (str.contains('already exists')) {
       return 'An item with this name already exists. Use a different name.';
     }
-    final withoutPrefix = str.replaceFirst(RegExp(r'^Exception:\s*'), '');
-    if (withoutPrefix.length > 80) {
+    if (str.contains('Permission denied') ||
+        str.contains('timed out') ||
+        str.contains('not found') ||
+        str.contains('unavailable')) {
+      return str.length > 160 ? '${str.substring(0, 157)}…' : str;
+    }
+    if (str.length > 120) {
       return 'Failed to save. Please try again.';
     }
-    return withoutPrefix.isEmpty ? 'Failed to save.' : withoutPrefix;
+    return str.isEmpty ? 'Failed to save.' : str;
   }
 
   @override
@@ -73,13 +80,11 @@ class _AddItemCategoryScreenState extends State<AddItemCategoryScreen> {
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
-    if (!SupabaseConfig.isConfigured) {
+    if (!FirebaseConfig.isConfigured) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Backend not configured. Add Supabase credentials.'),
-            backgroundColor: Color(0xFFE65100),
-          ),
+        ToastHelper.error(
+          context,
+          'Backend not configured. Check Firebase setup.',
         );
       }
       return;
@@ -88,10 +93,11 @@ class _AddItemCategoryScreenState extends State<AddItemCategoryScreen> {
     try {
       final qty10 = int.tryParse(_qty10ftController.text.trim()) ?? 0;
       final qty12 = int.tryParse(_qty12ftController.text.trim()) ?? 0;
+      final imageUrl = _typeImageUrlController.text.trim();
 
       await _repository.addStockSheetItem(
         typeName: _typeController.text.trim(),
-        typeImageUrl: _typeImageUrlController.text.trim(),
+        typeImageUrl: imageUrl.isEmpty ? null : imageUrl,
         code: _codeController.text.trim(),
         finish: _finishController.text.trim(),
         qty10ft: qty10,
@@ -99,13 +105,13 @@ class _AddItemCategoryScreenState extends State<AddItemCategoryScreen> {
         remark: _remarkController.text.trim(),
       );
       if (mounted) {
+        StockRefreshNotifier.instance.notifyStockChanged();
         ToastHelper.success(context, 'Item added');
         context.pop();
       }
     } catch (e) {
       if (mounted) {
-        final message = _userFriendlySaveError(e);
-        ToastHelper.error(context, message);
+        ToastHelper.error(context, _userFriendlySaveError(e));
       }
     } finally {
       if (mounted) setState(() => _isSaving = false);
@@ -115,6 +121,7 @@ class _AddItemCategoryScreenState extends State<AddItemCategoryScreen> {
   @override
   Widget build(BuildContext context) {
     final previewUrl = _typeImageUrlController.text.trim();
+
     return AppScaffold(
       child: Form(
         key: _formKey,
@@ -127,21 +134,21 @@ class _AddItemCategoryScreenState extends State<AddItemCategoryScreen> {
                 children: [
                   TextButton(
                     onPressed: () => context.pop(),
-                    child: const Text(
+                    child: Text(
                       'Cancel',
-                      style: TextStyle(
+                      style: GoogleFonts.dmSans(
                         color: AppTheme.textSecondary,
                         fontSize: 16,
                       ),
                     ),
                   ),
                   const Spacer(),
-                  const Text(
+                  Text(
                     'Add item',
-                    style: TextStyle(
+                    style: GoogleFonts.sora(
                       color: AppTheme.textPrimary,
                       fontSize: 18,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                   const Spacer(),
@@ -163,7 +170,7 @@ class _AddItemCategoryScreenState extends State<AddItemCategoryScreen> {
               const SizedBox(height: 20),
               AppTextField(
                 controller: _typeImageUrlController,
-                label: 'Type Image URL (optional)',
+                label: 'Image URL (optional)',
                 hintText: 'https://…',
                 keyboardType: TextInputType.url,
                 validator: (value) {
@@ -173,81 +180,58 @@ class _AddItemCategoryScreenState extends State<AddItemCategoryScreen> {
                   return null;
                 },
               ),
-              if (previewUrl.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                Stack(
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(16),
-                      child: AspectRatio(
-                        aspectRatio: 16 / 9,
-                        child: Image.network(
-                          previewUrl,
-                          fit: BoxFit.cover,
-                          loadingBuilder: (context, child, progress) {
-                            if (progress == null) return child;
-                            return Container(
-                              color: AppTheme.cardBackground,
-                              alignment: Alignment.center,
-                              child: const SizedBox(
-                                width: 22,
-                                height: 22,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2.6,
-                                  color: AppTheme.primaryBlue,
-                                ),
-                              ),
-                            );
-                          },
-                          errorBuilder: (context, error, stackTrace) {
-                            return Container(
-                              color: AppTheme.cardBackground,
-                              alignment: Alignment.center,
-                              child: const Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.broken_image_outlined,
-                                    color: AppTheme.textSecondary,
-                                  ),
-                                  SizedBox(width: 8),
-                                  Text(
-                                    'Image failed to load',
-                                    style: TextStyle(
-                                      color: AppTheme.textSecondary,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      top: 10,
-                      right: 10,
-                      child: Material(
-                        color: Colors.black.withValues(alpha: 0.55),
-                        borderRadius: BorderRadius.circular(999),
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(999),
-                          onTap: () => _typeImageUrlController.clear(),
-                          child: const Padding(
-                            padding: EdgeInsets.all(8),
-                            child: Icon(
-                              Icons.close_rounded,
-                              size: 18,
-                              color: Colors.white,
+              const SizedBox(height: 12),
+              AspectRatio(
+                aspectRatio: 16 / 9,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: AppTheme.cardBackground,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: AppTheme.borderColor),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: previewUrl.isEmpty
+                      ? Center(
+                          child: Text(
+                            'Image preview appears here',
+                            style: GoogleFonts.dmSans(
+                              color: AppTheme.textSecondary,
+                              fontSize: 13,
                             ),
                           ),
+                        )
+                      : Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            AppNetworkImage(
+                              url: previewUrl,
+                              fit: BoxFit.cover,
+                              borderRadius: BorderRadius.zero,
+                            ),
+                            Positioned(
+                              top: 10,
+                              right: 10,
+                              child: Material(
+                                color: Colors.black.withValues(alpha: 0.55),
+                                borderRadius: BorderRadius.circular(999),
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(999),
+                                  onTap: () => _typeImageUrlController.clear(),
+                                  child: const Padding(
+                                    padding: EdgeInsets.all(8),
+                                    child: Icon(
+                                      Icons.close_rounded,
+                                      size: 18,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
-                    ),
-                  ],
                 ),
-              ],
+              ),
               const SizedBox(height: 20),
               AppTextField(
                 controller: _codeController,
@@ -328,4 +312,3 @@ class _AddItemCategoryScreenState extends State<AddItemCategoryScreen> {
     );
   }
 }
-

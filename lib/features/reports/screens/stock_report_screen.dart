@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../core/config/firebase_config.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_primary_button.dart';
 import '../../../core/widgets/app_scaffold.dart';
-import '../../../core/config/supabase_config.dart';
+import '../../items/repository/items_repository.dart';
 
 class _ReportRow {
   final String itemName;
@@ -35,6 +35,7 @@ class StockReportScreen extends StatefulWidget {
 }
 
 class _StockReportScreenState extends State<StockReportScreen> {
+  final _repository = ItemsRepository();
   String _dateRange = 'Today'; // Today, This week, This month
   bool _loading = true;
   List<_ReportRow> _rows = const [];
@@ -60,7 +61,7 @@ class _StockReportScreenState extends State<StockReportScreen> {
   }
 
   Future<void> _load() async {
-    if (!SupabaseConfig.isConfigured) {
+    if (!FirebaseConfig.isConfigured) {
       setState(() {
         _rows = const [];
         _loading = false;
@@ -69,35 +70,22 @@ class _StockReportScreenState extends State<StockReportScreen> {
     }
     setState(() => _loading = true);
     try {
-      final client = Supabase.instance.client;
-      final userId = client.auth.currentUser?.id;
-      if (userId == null) throw Exception('Not signed in');
-      final cutoff = _cutoffForRange();
-      final res = await client
-          .from('stock_entries_v2')
-          .select(
-            'created_at, entry_type, delta_10ft, delta_12ft, items_v2(code, finish, item_types(name))',
+      final entries = await _repository.getStockEntries(
+        limit: 500,
+        entryType: _isStockIn ? 'in' : 'out',
+        since: _cutoffForRange(),
+      );
+      final rows = entries
+          .map(
+            (e) => _ReportRow(
+              itemName: e.itemLabel,
+              when: e.createdAt,
+              qty10ft: e.delta10ft,
+              qty12ft: e.delta12ft,
+              isIn: e.isIn,
+            ),
           )
-          .eq('entry_type', _isStockIn ? 'in' : 'out')
-          .gte('created_at', cutoff.toUtc().toIso8601String())
-          .order('created_at', ascending: false)
-          .limit(500);
-
-      final rows = (res as List).map((row) {
-        final map = row as Map<String, dynamic>;
-        final item = map['items_v2'] as Map<String, dynamic>?;
-        final type = item?['item_types'] as Map<String, dynamic>?;
-        final typeName = (type?['name'] as String?) ?? '';
-        final code = (item?['code'] as String?) ?? '';
-        final finish = (item?['finish'] as String?) ?? '';
-        return _ReportRow(
-          itemName: [typeName, code, finish].where((e) => e.trim().isNotEmpty).join(' · '),
-          when: DateTime.tryParse(map['created_at']?.toString() ?? '') ?? DateTime.now(),
-          qty10ft: (map['delta_10ft'] as num?)?.toInt() ?? 0,
-          qty12ft: (map['delta_12ft'] as num?)?.toInt() ?? 0,
-          isIn: map['entry_type'] == 'in',
-        );
-      }).toList();
+          .toList();
 
       if (!mounted) return;
       setState(() {
@@ -115,7 +103,8 @@ class _StockReportScreenState extends State<StockReportScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final accentColor = _isStockIn ? const Color(0xFF2E7D32) : const Color(0xFFE65100);
+    final accentColor =
+        _isStockIn ? const Color(0xFF2E7D32) : const Color(0xFFE65100);
 
     return AppScaffold(
       appBar: AppBar(
@@ -209,13 +198,18 @@ class _StockReportScreenState extends State<StockReportScreen> {
                         itemBuilder: (context, index) {
                           final row = _rows[index];
                           final qtyText = [
-                            if (row.qty10ft != 0) '${row.isIn ? "+" : "-"}${row.qty10ft} (10ft)',
-                            if (row.qty12ft != 0) '${row.isIn ? "+" : "-"}${row.qty12ft} (12ft)',
+                            if (row.qty10ft != 0)
+                              '${row.isIn ? "+" : "-"}${row.qty10ft} (10ft)',
+                            if (row.qty12ft != 0)
+                              '${row.isIn ? "+" : "-"}${row.qty12ft} (12ft)',
                           ].join('\n');
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 10),
                             child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 14,
+                              ),
                               decoration: BoxDecoration(
                                 color: AppTheme.cardBackground,
                                 borderRadius: BorderRadius.circular(18),
@@ -240,7 +234,8 @@ class _StockReportScreenState extends State<StockReportScreen> {
                                   const SizedBox(width: 14),
                                   Expanded(
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Text(
                                           row.itemName,

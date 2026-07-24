@@ -1,12 +1,12 @@
 {
-    "name": "kooba_stock_management_app",
-    "short_name": "kooba_stock_management_app",
+    "name": "Kooba Stock Management",
+    "short_name": "Kooba",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
-    "orientation": "portrait-primary",
+    "background_color": "#0B1220",
+    "theme_color": "#2DD4BF",
+    "description": "Kooba stock management",
+    "orientation": "any",
     "prefer_related_applications": false,
     "icons": [
         {

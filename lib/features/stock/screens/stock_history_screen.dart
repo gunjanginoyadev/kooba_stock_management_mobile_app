@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../core/config/firebase_config.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_scaffold.dart';
-import '../../../core/config/supabase_config.dart';
+import '../../items/repository/items_repository.dart';
 
 class _HistoryEntry {
   final String id;
@@ -32,8 +32,9 @@ class StockHistoryScreen extends StatefulWidget {
 }
 
 class _StockHistoryScreenState extends State<StockHistoryScreen> {
+  final _repository = ItemsRepository();
   String _dateFilter = 'Today'; // Today, This week, This month
-  String _typeFilter = 'All';   // All, Stock in, Stock out
+  String _typeFilter = 'All'; // All, Stock in, Stock out
   String _searchQuery = '';
   bool _loading = true;
   List<_HistoryEntry> _entries = [];
@@ -45,7 +46,7 @@ class _StockHistoryScreenState extends State<StockHistoryScreen> {
   }
 
   Future<void> _load() async {
-    if (!SupabaseConfig.isConfigured) {
+    if (!FirebaseConfig.isConfigured) {
       setState(() {
         _entries = [];
         _loading = false;
@@ -55,36 +56,19 @@ class _StockHistoryScreenState extends State<StockHistoryScreen> {
 
     setState(() => _loading = true);
     try {
-      final client = Supabase.instance.client;
-      final userId = client.auth.currentUser?.id;
-      if (userId == null) throw Exception('Not signed in');
-
-      final res = await client
-          .from('stock_entries_v2')
-          .select('id, created_at, entry_type, delta_10ft, delta_12ft, items_v2(code, finish, item_types(name))')
-          .order('created_at', ascending: false)
-          .limit(200);
-
-      final list = (res as List).map((row) {
-        final map = row as Map<String, dynamic>;
-        final item = map['items_v2'] as Map<String, dynamic>?;
-        final type = item?['item_types'] as Map<String, dynamic>?;
-        final typeName = (type?['name'] as String?) ?? '';
-        final code = (item?['code'] as String?) ?? '';
-        final finish = (item?['finish'] as String?) ?? '';
-
-        return _HistoryEntry(
-          id: map['id'] as String,
-          isStockIn: map['entry_type'] == 'in',
-          itemName: [typeName, code.isEmpty ? null : code, finish.isEmpty ? null : finish]
-              .whereType<String>()
-              .where((e) => e.trim().isNotEmpty)
-              .join(' · '),
-          delta10ft: (map['delta_10ft'] as num?)?.toInt() ?? 0,
-          delta12ft: (map['delta_12ft'] as num?)?.toInt() ?? 0,
-          when: DateTime.tryParse(map['created_at']?.toString() ?? '') ?? DateTime.now(),
-        );
-      }).toList();
+      final entries = await _repository.getStockEntries(limit: 200);
+      final list = entries
+          .map(
+            (e) => _HistoryEntry(
+              id: e.id,
+              isStockIn: e.isIn,
+              itemName: e.itemLabel,
+              delta10ft: e.delta10ft,
+              delta12ft: e.delta12ft,
+              when: e.createdAt,
+            ),
+          )
+          .toList();
 
       if (!mounted) return;
       setState(() {
@@ -394,12 +378,15 @@ class _HistoryTile extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(width: 8),
-                          Text(
-                            entry.itemName,
-                            style: const TextStyle(
-                              color: AppTheme.textPrimary,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
+                          Flexible(
+                            child: Text(
+                              entry.itemName,
+                              style: const TextStyle(
+                                color: AppTheme.textPrimary,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                         ],

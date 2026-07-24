@@ -1,16 +1,21 @@
 import 'dart:async';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../../../core/config/supabase_config.dart';
+import '../../../core/config/firebase_config.dart';
 import 'auth_event.dart';
 import 'auth_state.dart';
 
-/// Auth bloc wired to Supabase (email/password). When Supabase is not
-/// configured, falls back to unauthenticated and no-op for login/register.
+/// Auth bloc wired to Firebase Auth (email/password).
 class AuthBloc extends Bloc<AuthEvent, AppAuthState> {
-  AuthBloc() : super(const AuthInitial()) {
+  AuthBloc({
+    FirebaseAuth? auth,
+    FirebaseFirestore? firestore,
+  })  : _auth = auth ?? FirebaseAuth.instance,
+        _firestore = firestore ?? FirebaseFirestore.instance,
+        super(const AuthInitial()) {
     on<LoginEvent>(_onLogin);
     on<RegisterEvent>(_onRegister);
     on<GoogleLoginEvent>(_onGoogleLogin);
@@ -18,16 +23,17 @@ class AuthBloc extends Bloc<AuthEvent, AppAuthState> {
     on<ResetPasswordEvent>(_onResetPassword);
     on<CheckAuthStatusEvent>(_onCheckAuthStatus);
 
-    if (SupabaseConfig.isConfigured) {
-      _authSubscription = Supabase.instance.client.auth.onAuthStateChange
-          .listen((_) => add(const CheckAuthStatusEvent()));
-      add(const CheckAuthStatusEvent());
-    } else {
-      add(const CheckAuthStatusEvent());
+    if (FirebaseConfig.isConfigured) {
+      _authSubscription = _auth.authStateChanges().listen(
+            (_) => add(const CheckAuthStatusEvent()),
+          );
     }
+    add(const CheckAuthStatusEvent());
   }
 
-  StreamSubscription<AuthState>? _authSubscription;
+  final FirebaseAuth _auth;
+  final FirebaseFirestore _firestore;
+  StreamSubscription<User?>? _authSubscription;
 
   @override
   Future<void> close() {
@@ -36,18 +42,18 @@ class AuthBloc extends Bloc<AuthEvent, AppAuthState> {
   }
 
   Future<void> _onLogin(LoginEvent event, Emitter<AppAuthState> emit) async {
-    if (!SupabaseConfig.isConfigured) {
+    if (!FirebaseConfig.isConfigured) {
       emit(const AuthUnauthenticated());
       return;
     }
     emit(const AuthLoading());
     try {
-      await Supabase.instance.client.auth.signInWithPassword(
-        email: event.email,
+      await _auth.signInWithEmailAndPassword(
+        email: event.email.trim(),
         password: event.password,
       );
       emit(const AuthAuthenticated());
-    } on AuthException catch (e) {
+    } on FirebaseAuthException catch (e) {
       emit(AuthError(_loginErrorMessage(e)));
     } catch (e) {
       emit(AuthError(e.toString()));
@@ -55,113 +61,143 @@ class AuthBloc extends Bloc<AuthEvent, AppAuthState> {
   }
 
   Future<void> _onRegister(
-      RegisterEvent event, Emitter<AppAuthState> emit) async {
-    if (!SupabaseConfig.isConfigured) {
+    RegisterEvent event,
+    Emitter<AppAuthState> emit,
+  ) async {
+    if (!FirebaseConfig.isConfigured) {
       emit(const AuthUnauthenticated());
       return;
     }
     emit(const AuthLoading());
     try {
-      final response = await Supabase.instance.client.auth.signUp(
-        email: event.email,
+      final credential = await _auth.createUserWithEmailAndPassword(
+        email: event.email.trim(),
         password: event.password,
-        data: event.fullName != null && event.fullName!.isNotEmpty
-            ? {'full_name': event.fullName}
-            : null,
       );
-      if (response.session != null) {
-        emit(const AuthAuthenticated());
-      } else {
-        emit(AuthEmailConfirmationRequired(event.email));
+      final user = credential.user;
+      if (user == null) {
+        emit(const AuthError('Registration failed. Please try again.'));
+        return;
       }
-    } on AuthException catch (e) {
+
+      final fullName = event.fullName?.trim();
+      if (fullName != null && fullName.isNotEmpty) {
+        await user.updateDisplayName(fullName);
+      }
+
+      await _firestore.collection('profiles').doc(user.uid).set({
+        'full_name': (fullName != null && fullName.isNotEmpty) ? fullName : null,
+        'created_at': FieldValue.serverTimestamp(),
+        'updated_at': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      try {
+        await user.sendEmailVerification();
+      } catch (_) {
+        // Profile created; verification email is best-effort.
+      }
+
+      emit(const AuthAuthenticated());
+    } on FirebaseAuthException catch (e) {
       emit(AuthError(_registerErrorMessage(e)));
     } catch (e) {
       emit(AuthError(e.toString()));
     }
   }
 
-  static String _registerErrorMessage(AuthException e) {
-    final msg = e.message.toLowerCase();
-    if (msg.contains('error sending') ||
-        msg.contains('unexpected_failure') ||
-        msg.contains('confirmation mail')) {
-      return 'We couldn\'t send the confirmation email. Check Supabase Auth → SMTP (Resend: API key, sender onboarding@resend.dev, port 465).';
+  static String _registerErrorMessage(FirebaseAuthException e) {
+    switch (e.code) {
+      case 'email-already-in-use':
+        return 'An account already exists for that email.';
+      case 'invalid-email':
+        return 'Please enter a valid email address.';
+      case 'weak-password':
+        return 'Password is too weak. Use at least 6 characters.';
+      case 'operation-not-allowed':
+        return 'Email/password sign-in is disabled in Firebase Auth.';
+      default:
+        return e.message ?? e.code;
     }
-    return e.message;
   }
 
-  /// User-friendly message for login errors (e.g. email not confirmed).
-  static String _loginErrorMessage(AuthException e) {
-    final msg = e.message.toLowerCase();
-    if (msg.contains('email not confirmed') ||
-        msg.contains('confirm your email') ||
-        msg.contains('not confirmed')) {
-      return 'Please verify your email first. Check your inbox for the confirmation link, then try again.';
+  static String _loginErrorMessage(FirebaseAuthException e) {
+    switch (e.code) {
+      case 'user-not-found':
+      case 'wrong-password':
+      case 'invalid-credential':
+        return 'Invalid email or password.';
+      case 'invalid-email':
+        return 'Please enter a valid email address.';
+      case 'user-disabled':
+        return 'This account has been disabled.';
+      case 'too-many-requests':
+        return 'Too many attempts. Please wait and try again.';
+      default:
+        return e.message ?? e.code;
     }
-    return e.message;
   }
 
   Future<void> _onGoogleLogin(
-      GoogleLoginEvent event, Emitter<AppAuthState> emit) async {
+    GoogleLoginEvent event,
+    Emitter<AppAuthState> emit,
+  ) async {
     emit(const AuthUnauthenticated());
   }
 
   Future<void> _onLogout(
-      LogoutEvent event, Emitter<AppAuthState> emit) async {
-    if (SupabaseConfig.isConfigured) {
+    LogoutEvent event,
+    Emitter<AppAuthState> emit,
+  ) async {
+    if (FirebaseConfig.isConfigured) {
       try {
-        await Supabase.instance.client.auth.signOut();
+        await _auth.signOut();
       } catch (_) {}
     }
     emit(const AuthUnauthenticated());
   }
 
   Future<void> _onResetPassword(
-      ResetPasswordEvent event, Emitter<AppAuthState> emit) async {
-    if (!SupabaseConfig.isConfigured) {
+    ResetPasswordEvent event,
+    Emitter<AppAuthState> emit,
+  ) async {
+    if (!FirebaseConfig.isConfigured) {
       emit(const AuthError('Backend not configured'));
       return;
     }
     emit(const AuthLoading());
     try {
-      await Supabase.instance.client.auth.resetPasswordForEmail(event.email);
+      await _auth.sendPasswordResetEmail(email: event.email.trim());
       emit(const PasswordResetSent());
-    } on AuthException catch (e) {
+    } on FirebaseAuthException catch (e) {
       emit(AuthError(_resetPasswordErrorMessage(e)));
     } catch (e) {
       emit(AuthError(e.toString()));
     }
   }
 
-  /// User-friendly message for reset-password errors (e.g. rate limit, SMTP).
-  static String _resetPasswordErrorMessage(AuthException e) {
-    final msg = e.message.toLowerCase();
-    final code = e.statusCode;
-    final isRateLimit = code == 429 ||
-        code == '429' ||
-        msg.contains('rate limit') ||
-        msg.contains('too many');
-    if (isRateLimit) {
-      return 'Too many emails sent. Please wait an hour and try again, or use a different email.';
+  static String _resetPasswordErrorMessage(FirebaseAuthException e) {
+    switch (e.code) {
+      case 'invalid-email':
+        return 'Please enter a valid email address.';
+      case 'user-not-found':
+        return 'No account found for that email.';
+      case 'too-many-requests':
+        return 'Too many emails sent. Please wait and try again.';
+      default:
+        return e.message ?? e.code;
     }
-    if (msg.contains('error sending recovery email') ||
-        msg.contains('unexpected_failure') ||
-        (e.statusCode?.toString() == '500' && msg.contains('recovery'))) {
-      return 'We couldn\'t send the reset email. Check that Resend SMTP is set up in Supabase (Settings → Auth → SMTP): correct API key, sender onboarding@resend.dev, port 465.';
-    }
-    return e.message;
   }
 
   Future<void> _onCheckAuthStatus(
-      CheckAuthStatusEvent event, Emitter<AppAuthState> emit) async {
-    if (!SupabaseConfig.isConfigured) {
+    CheckAuthStatusEvent event,
+    Emitter<AppAuthState> emit,
+  ) async {
+    if (!FirebaseConfig.isConfigured) {
       emit(const AuthUnauthenticated());
       return;
     }
     try {
-      final session = Supabase.instance.client.auth.currentSession;
-      if (session != null) {
+      if (_auth.currentUser != null) {
         emit(const AuthAuthenticated());
       } else {
         emit(const AuthUnauthenticated());

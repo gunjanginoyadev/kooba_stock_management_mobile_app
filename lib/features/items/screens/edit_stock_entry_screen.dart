@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/stock/stock_refresh_notifier.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_primary_button.dart';
 import '../../../core/widgets/app_scaffold.dart';
@@ -79,11 +80,14 @@ class _EditStockEntryScreenState extends State<EditStockEntryScreen> {
         newNotes: _notesController.text,
       );
       if (!mounted) return;
+      StockRefreshNotifier.instance.notifyStockChanged();
       ToastHelper.success(context, 'Entry updated');
       context.pop();
     } catch (e) {
       if (!mounted) return;
-      ToastHelper.error(context, e.toString());
+      final msg =
+          e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
+      ToastHelper.error(context, msg);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -96,11 +100,14 @@ class _EditStockEntryScreenState extends State<EditStockEntryScreen> {
     try {
       await _repo.deleteStockEntry(entry.id);
       if (!mounted) return;
+      StockRefreshNotifier.instance.notifyStockChanged();
       ToastHelper.success(context, 'Entry deleted');
       context.pop();
     } catch (e) {
       if (!mounted) return;
-      ToastHelper.error(context, e.toString());
+      final msg =
+          e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
+      ToastHelper.error(context, msg);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -209,6 +216,26 @@ class _EditStockEntryScreenState extends State<EditStockEntryScreen> {
             style: TextStyle(
               color: AppTheme.textSecondary,
               fontSize: 12,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1A2332),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppTheme.borderColor),
+            ),
+            child: const Text(
+              'Edits are checked against full history. If changing this '
+              'quantity would make stock negative at any past point, it '
+              'will be blocked — use a new stock in/out to correct.',
+              style: TextStyle(
+                color: AppTheme.textSecondary,
+                fontSize: 12,
+                height: 1.35,
+              ),
             ),
           ),
           const SizedBox(height: 24),

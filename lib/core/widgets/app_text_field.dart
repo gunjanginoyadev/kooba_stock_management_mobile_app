@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+
 import '../theme/app_theme.dart';
 
-/// A reusable styled text field matching the Kooba auth design.
 class AppTextField extends StatelessWidget {
   final TextEditingController controller;
   final String label;
@@ -31,10 +32,10 @@ class AppTextField extends StatelessWidget {
       children: [
         Text(
           label,
-          style: const TextStyle(
+          style: GoogleFonts.dmSans(
             color: AppTheme.textPrimary,
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
           ),
         ),
         const SizedBox(height: 8),
@@ -42,6 +43,11 @@ class AppTextField extends StatelessWidget {
           controller: controller,
           keyboardType: keyboardType,
           obscureText: obscureText,
+          style: GoogleFonts.dmSans(
+            color: AppTheme.textPrimary,
+            fontSize: 15,
+            fontWeight: FontWeight.w500,
+          ),
           decoration: InputDecoration(
             hintText: hintText,
             prefixIcon: prefixIcon,
@@ -53,5 +59,3 @@ class AppTextField extends StatelessWidget {
     );
   }
 }
-
-

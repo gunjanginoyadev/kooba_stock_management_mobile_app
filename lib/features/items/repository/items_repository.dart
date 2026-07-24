@@ -1,27 +1,49 @@
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 
-import '../../../core/config/supabase_config.dart';
+import '../../../core/config/firebase_config.dart';
 import '../models/item_models.dart';
 
 class ItemsRepository {
-  ItemsRepository({SupabaseClient? client})
-      : _client = client ?? Supabase.instance.client;
+  ItemsRepository({
+    FirebaseFirestore? firestore,
+    FirebaseAuth? auth,
+  })  : _db = firestore ?? FirebaseFirestore.instance,
+        _auth = auth ?? FirebaseAuth.instance;
 
-  final SupabaseClient _client;
+  final FirebaseFirestore _db;
+  final FirebaseAuth _auth;
 
-  bool get _isAvailable => SupabaseConfig.isConfigured;
+  bool get _isAvailable => FirebaseConfig.isConfigured;
 
-  String? get _userId => _client.auth.currentUser?.id;
+  String? get _userId => _auth.currentUser?.uid;
+
+  CollectionReference<Map<String, dynamic>> get _profiles =>
+      _db.collection('profiles');
+  CollectionReference<Map<String, dynamic>> get _itemCategories =>
+      _db.collection('item_categories');
+  CollectionReference<Map<String, dynamic>> get _items =>
+      _db.collection('items');
+  CollectionReference<Map<String, dynamic>> get _itemTypes =>
+      _db.collection('item_types');
+  CollectionReference<Map<String, dynamic>> get _itemsV2 =>
+      _db.collection('items_v2');
+  CollectionReference<Map<String, dynamic>> get _stockEntriesV2 =>
+      _db.collection('stock_entries_v2');
+
+  Map<String, dynamic> _withId(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data() ?? <String, dynamic>{};
+    return {'id': doc.id, ...data};
+  }
 
   Future<String?> getMyFullName() async {
     if (!_isAvailable || _userId == null) return null;
-    final res = await _client
-        .from('profiles')
-        .select('full_name')
-        .eq('id', _userId!)
-        .maybeSingle();
-    if (res == null) return null;
-    final name = res['full_name'] as String?;
+    final displayName = _auth.currentUser?.displayName?.trim();
+    if (displayName != null && displayName.isNotEmpty) return displayName;
+
+    final snap = await _profiles.doc(_userId!).get();
+    final name = snap.data()?['full_name'] as String?;
     if (name == null || name.trim().isEmpty) return null;
     return name.trim();
   }
@@ -35,55 +57,48 @@ class ItemsRepository {
     final name = categoryName.trim();
     if (name.isEmpty) throw ArgumentError('Category name is required');
 
-    final existing = await _client
-        .from('item_categories')
-        .select('id, image_url')
-        .eq('user_id', _userId!)
-        .eq('name', name)
-        .maybeSingle();
+    final existing = await _itemCategories
+        .where('user_id', isEqualTo: _userId!)
+        .where('name', isEqualTo: name)
+        .limit(1)
+        .get();
 
-    if (existing != null && existing['id'] != null) {
-      final trimmedUrl = imageUrl?.trim();
-      final urlToSet = (trimmedUrl == null || trimmedUrl.isEmpty)
-          ? null
-          : trimmedUrl;
-      final currentUrl = existing['image_url'] as String?;
-      if (urlToSet != null && (currentUrl == null || currentUrl.isEmpty)) {
-        await _client.from('item_categories').update({
-          'image_url': urlToSet,
-        }).eq('id', existing['id']);
+    final normalizedUrl =
+        (imageUrl?.trim().isEmpty ?? true) ? null : imageUrl!.trim();
+
+    if (existing.docs.isNotEmpty) {
+      final doc = existing.docs.first;
+      final currentUrl = doc.data()['image_url'] as String?;
+      if (normalizedUrl != null &&
+          (currentUrl == null || currentUrl.isEmpty)) {
+        await doc.reference.update({'image_url': normalizedUrl});
       }
-      return existing['id'] as String;
+      return doc.id;
     }
 
-    final insert = await _client.from('item_categories').insert({
+    final ref = await _itemCategories.add({
       'name': name,
-      'image_url': imageUrl?.trim().isEmpty == true ? null : imageUrl?.trim(),
+      'image_url': normalizedUrl,
       'user_id': _userId!,
-    }).select('id').single();
-
-    return insert['id'].toString();
+      'created_at': FieldValue.serverTimestamp(),
+    });
+    return ref.id;
   }
 
-  /// Returns true if an item with this name already exists (normal or under any category), case-insensitive.
+  /// Returns true if an item with this name already exists (case-insensitive).
   Future<bool> itemNameExists(String name) async {
     if (!_isAvailable || _userId == null) return false;
     final trimmed = name.trim();
     if (trimmed.isEmpty) return false;
-    final all = await _client
-        .from('items')
-        .select('name')
-        .eq('user_id', _userId!);
-    final list = all as List;
+    final all = await _items.where('user_id', isEqualTo: _userId!).get();
     final lowerName = trimmed.toLowerCase();
-    for (final row in list) {
-      final itemName = (row as Map<String, dynamic>)['name'] as String?;
+    for (final doc in all.docs) {
+      final itemName = doc.data()['name'] as String?;
       if (itemName != null && itemName.toLowerCase() == lowerName) return true;
     }
     return false;
   }
 
-  /// Insert a normal item (no category).
   Future<StockItem> addNormalItem({
     required String name,
     String? sku,
@@ -94,21 +109,23 @@ class ItemsRepository {
     if (trimmedName.isEmpty) throw ArgumentError('Item name is required');
 
     if (await itemNameExists(trimmedName)) {
-      throw Exception('An item with this name already exists (as normal or under a category).');
+      throw Exception(
+        'An item with this name already exists (as normal or under a category).',
+      );
     }
 
-    final res = await _client.from('items').insert({
+    final ref = await _items.add({
       'name': trimmedName,
       'sku': sku?.trim().isEmpty == true ? null : sku?.trim(),
       'category_id': null,
       'quantity': quantity,
       'user_id': _userId!,
-    }).select().single();
-
-    return StockItem.fromJson(Map<String, dynamic>.from(res));
+      'created_at': FieldValue.serverTimestamp(),
+    });
+    final snap = await ref.get();
+    return StockItem.fromJson(_withId(snap));
   }
 
-  /// Insert a special (category-based) item.
   Future<StockItem> addSpecialItem({
     required String categoryName,
     required String itemName,
@@ -128,106 +145,81 @@ class ItemsRepository {
     );
 
     if (await itemNameExists(item)) {
-      throw Exception('An item with this name already exists (as normal or under a category).');
+      throw Exception(
+        'An item with this name already exists (as normal or under a category).',
+      );
     }
 
-    final res = await _client.from('items').insert({
+    final ref = await _items.add({
       'name': item,
       'sku': sku?.trim().isEmpty == true ? null : sku?.trim(),
       'category_id': categoryId,
+      'category_name': cat,
       'quantity': quantity,
       'user_id': _userId!,
-    }).select().single();
-
-    final map = Map<String, dynamic>.from(res);
+      'created_at': FieldValue.serverTimestamp(),
+    });
+    final snap = await ref.get();
+    final map = _withId(snap);
     map['category_name'] = cat;
     return StockItem.fromJson(map);
   }
 
-  /// Fetch all normal items (no category).
   Future<List<StockItem>> getNormalItems() async {
     if (!_isAvailable || _userId == null) return [];
 
-    final res = await _client
-        .from('items')
-        .select()
-        .eq('user_id', _userId!)
-        .isFilter('category_id', null)
-        .order('name');
-
-    return (res as List)
-        .map((e) => StockItem.fromJson(e as Map<String, dynamic>))
+    final res = await _items.where('user_id', isEqualTo: _userId!).get();
+    final items = res.docs
+        .map((d) => StockItem.fromJson(_withId(d)))
+        .where((i) => i.isNormal)
         .toList();
+    items.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    return items;
   }
 
-  /// Fetch all categories with their items (for special / manage items).
   Future<List<ItemCategory>> getCategories() async {
     if (!_isAvailable || _userId == null) return [];
 
-    final res = await _client
-        .from('item_categories')
-        .select()
-        .eq('user_id', _userId!)
-        .order('name');
-
-    return (res as List)
-        .map((e) => ItemCategory.fromJson(e as Map<String, dynamic>))
-        .toList();
+    final res =
+        await _itemCategories.where('user_id', isEqualTo: _userId!).get();
+    final list = res.docs.map((d) => ItemCategory.fromJson(_withId(d))).toList();
+    list.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    return list;
   }
 
-  /// Fetch all items that have a category (special items), with category name.
   Future<List<StockItem>> getSpecialItems() async {
     if (!_isAvailable || _userId == null) return [];
 
-    final res = await _client
-        .from('items')
-        .select('*, item_categories(name)')
-        .eq('user_id', _userId!)
-        .not('category_id', 'is', null)
-        .order('name');
-
-    return (res as List).map((e) {
-      final map = Map<String, dynamic>.from(e as Map<String, dynamic>);
-      final cat = map['item_categories'];
-      if (cat is Map) {
-        map['category_name'] = cat['name'];
-      }
-      map.remove('item_categories');
-      return StockItem.fromJson(map);
-    }).toList();
+    final res = await _items.where('user_id', isEqualTo: _userId!).get();
+    final items = res.docs
+        .map((d) => StockItem.fromJson(_withId(d)))
+        .where((i) => !i.isNormal)
+        .toList();
+    items.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    return items;
   }
 
-  /// Fetch items by category id (for one category's items).
   Future<List<StockItem>> getItemsByCategoryId(String categoryId) async {
     if (!_isAvailable || _userId == null) return [];
 
-    final res = await _client
-        .from('items')
-        .select('*, item_categories(name)')
-        .eq('user_id', _userId!)
-        .eq('category_id', categoryId)
-        .order('name');
-
-    return (res as List).map((e) {
-      final map = Map<String, dynamic>.from(e as Map<String, dynamic>);
-      final cat = map['item_categories'];
-      if (cat is Map) {
-        map['category_name'] = cat['name'];
-      }
-      map.remove('item_categories');
-      return StockItem.fromJson(map);
-    }).toList();
+    final res = await _items
+        .where('user_id', isEqualTo: _userId!)
+        .where('category_id', isEqualTo: categoryId)
+        .get();
+    final items = res.docs.map((d) => StockItem.fromJson(_withId(d))).toList();
+    items.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    return items;
   }
 
-  /// All items grouped: normal list + categories with items (for manage screen).
-  Future<({List<StockItem> normal, List<ItemCategory> categories})> getManageData() async {
+  Future<({List<StockItem> normal, List<ItemCategory> categories})>
+      getManageData() async {
     final normal = await getNormalItems();
     final categories = await getCategories();
     return (normal: normal, categories: categories);
   }
 
-  /// Categories with their items (each category has list of items).
-  Future<List<MapEntry<ItemCategory, List<StockItem>>>> getCategoriesWithItems() async {
+  Future<List<MapEntry<ItemCategory, List<StockItem>>>>
+      getCategoriesWithItems() async {
     final categories = await getCategories();
     final result = <MapEntry<ItemCategory, List<StockItem>>>[];
     for (final cat in categories) {
@@ -238,7 +230,43 @@ class ItemsRepository {
   }
 
   Exception _notConfigured() {
-    return Exception('Supabase not configured or user not signed in');
+    return Exception('Firebase not configured or user not signed in');
+  }
+
+  static const _firestoreTimeout = Duration(seconds: 15);
+
+  Future<T> _withTimeout<T>(Future<T> future, String action) {
+    return future.timeout(
+      _firestoreTimeout,
+      onTimeout: () => throw Exception(
+        '$action timed out. Check internet, and that Cloud Firestore is '
+        'created for project kooba-stock-management.',
+      ),
+    );
+  }
+
+  Exception _mapFirestoreError(Object e, String action) {
+    if (e is FirebaseException) {
+      switch (e.code) {
+        case 'permission-denied':
+          return Exception(
+            'Permission denied. In Firebase Console → Firestore, deploy '
+            'the rules from firestore.rules (allow signed-in users).',
+          );
+        case 'unavailable':
+          return Exception(
+            'Firestore unavailable. Check internet / Firebase status.',
+          );
+        case 'not-found':
+          return Exception(
+            'Firestore database not found. Create it in Firebase Console.',
+          );
+        default:
+          return Exception('$action failed: ${e.code} — ${e.message}');
+      }
+    }
+    if (e is Exception) return e;
+    return Exception('$action failed: $e');
   }
 
   // ----------------------------------------------------------------------------
@@ -247,14 +275,25 @@ class ItemsRepository {
 
   Future<List<StockItemType>> getItemTypes() async {
     if (!_isAvailable || _userId == null) return [];
-    final res = await _client
-        .from('item_types')
-        .select()
-        .order('name');
+    try {
+      final res = await _withTimeout(
+        _itemTypes.orderBy('name').get(),
+        'Load types',
+      );
+      return res.docs.map((d) => StockItemType.fromJson(_withId(d))).toList();
+    } catch (e) {
+      throw _mapFirestoreError(e, 'Load types');
+    }
+  }
 
-    return (res as List)
-        .map((e) => StockItemType.fromJson(e as Map<String, dynamic>))
-        .toList();
+  /// Stable doc id from type name (avoids a collection query that can hang).
+  String _typeDocId(String name) {
+    final slug = name
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
+        .replaceAll(RegExp(r'^_+|_+$'), '');
+    return slug.isEmpty ? 'type' : slug;
   }
 
   Future<String> getOrCreateTypeId({
@@ -266,39 +305,51 @@ class ItemsRepository {
     final name = typeName.trim();
     if (name.isEmpty) throw ArgumentError('Type name is required');
 
-    final existing = await _client
-        .from('item_types')
-        .select('id, image_url, remark')
-        .eq('name', name)
-        .maybeSingle();
+    final normalizedUrl =
+        (imageUrl?.trim().isEmpty ?? true) ? null : imageUrl!.trim();
+    final normalizedRemark =
+        (remark?.trim().isEmpty ?? true) ? null : remark!.trim();
 
-    final normalizedUrl = (imageUrl?.trim().isEmpty ?? true) ? null : imageUrl!.trim();
-    final normalizedRemark = (remark?.trim().isEmpty ?? true) ? null : remark!.trim();
+    final typeId = _typeDocId(name);
+    final docRef = _itemTypes.doc(typeId);
 
-    if (existing != null && existing['id'] != null) {
-      final id = existing['id'] as String;
-      final currentUrl = existing['image_url'] as String?;
-      final currentRemark = existing['remark'] as String?;
-      final shouldUpdate =
-          (normalizedUrl != null && (currentUrl == null || currentUrl.isEmpty)) ||
-          (normalizedRemark != null && (currentRemark == null || currentRemark.isEmpty));
+    try {
+      final existing = await _withTimeout(docRef.get(), 'Load type');
+
+      if (existing.exists) {
+        final data = existing.data() ?? {};
+        final currentUrl = data['image_url'] as String?;
+        final currentRemark = data['remark'] as String?;
+      final shouldUpdate = (normalizedUrl != null &&
+              normalizedUrl != currentUrl) ||
+          (normalizedRemark != null &&
+              (currentRemark == null || currentRemark.isEmpty));
       if (shouldUpdate) {
-        await _client.from('item_types').update({
-          if (normalizedUrl != null) 'image_url': normalizedUrl,
-          if (normalizedRemark != null) 'remark': normalizedRemark,
-        }).eq('id', id);
+        await _withTimeout(
+          docRef.update({
+            if (normalizedUrl != null) 'image_url': normalizedUrl,
+            if (normalizedRemark != null) 'remark': normalizedRemark,
+          }),
+          'Update type',
+        );
       }
-      return id;
+        return typeId;
+      }
+
+      await _withTimeout(
+        docRef.set({
+          'name': name,
+          'image_url': normalizedUrl,
+          'remark': normalizedRemark,
+          'user_id': _userId!,
+          'created_at': FieldValue.serverTimestamp(),
+        }),
+        'Create type',
+      );
+      return typeId;
+    } catch (e) {
+      throw _mapFirestoreError(e, 'Save type');
     }
-
-    final insert = await _client.from('item_types').insert({
-      'name': name,
-      'image_url': normalizedUrl,
-      'remark': normalizedRemark,
-      'user_id': _userId!,
-    }).select('id').single();
-
-    return insert['id'].toString();
   }
 
   Future<StockSheetItem> addStockSheetItem({
@@ -318,34 +369,184 @@ class ItemsRepository {
     if (c.isEmpty) throw ArgumentError('Code is required');
     if (f.isEmpty) throw ArgumentError('Finish is required');
 
-    final typeId = await getOrCreateTypeId(
-      typeName: t,
-      imageUrl: typeImageUrl,
-    );
+    try {
+      final typeId = await getOrCreateTypeId(
+        typeName: t,
+        imageUrl: typeImageUrl,
+      );
 
-    final res = await _client.from('items_v2').insert({
-      'type_id': typeId,
-      'code': c,
-      'finish': f,
-      'qty_10ft': qty10ft,
-      'qty_12ft': qty12ft,
-      'remark': remark?.trim().isEmpty == true ? null : remark?.trim(),
-      'user_id': _userId!,
-    }).select('*, item_types(name, image_url)').single();
+      final typeSnap = await _withTimeout(
+        _itemTypes.doc(typeId).get(),
+        'Load type',
+      );
+      final typeData = typeSnap.data() ?? {};
+      final resolvedTypeName = (typeData['name'] as String?) ?? t;
+      final resolvedTypeImage =
+          (typeData['image_url'] as String?) ?? typeImageUrl?.trim();
+      final typeImage = (resolvedTypeImage == null || resolvedTypeImage.isEmpty)
+          ? null
+          : resolvedTypeImage;
+      final normalizedRemark =
+          remark?.trim().isEmpty == true ? null : remark?.trim();
 
-    return StockSheetItem.fromJson(Map<String, dynamic>.from(res));
+      final docRef = _itemsV2.doc();
+      await _withTimeout(
+        docRef.set({
+          'type_id': typeId,
+          'type_name': resolvedTypeName,
+          'type_image_url': typeImage,
+          'code': c,
+          'finish': f,
+          'qty_10ft': qty10ft,
+          'qty_12ft': qty12ft,
+          'remark': normalizedRemark,
+          'user_id': _userId!,
+          'created_at': FieldValue.serverTimestamp(),
+        }),
+        'Save item',
+      );
+
+      // Avoid a second round-trip that can hang waiting on the server.
+      return StockSheetItem(
+        id: docRef.id,
+        typeId: typeId,
+        typeName: resolvedTypeName,
+        typeImageUrl: typeImage,
+        code: c,
+        finish: f,
+        qty10ft: qty10ft,
+        qty12ft: qty12ft,
+        remark: normalizedRemark,
+      );
+    } catch (e) {
+      throw _mapFirestoreError(e, 'Save item');
+    }
   }
 
   Future<List<StockSheetItem>> getStockSheetItems() async {
     if (!_isAvailable || _userId == null) return [];
-    final res = await _client
-        .from('items_v2')
-        .select('*, item_types(name, image_url)')
-        .order('created_at', ascending: false);
+    final res = await _itemsV2.orderBy('created_at', descending: true).get();
+    final items =
+        res.docs.map((d) => StockSheetItem.fromJson(_withId(d))).toList();
+    return _hydrateItemImages(items);
+  }
 
-    return (res as List)
-        .map((e) => StockSheetItem.fromJson(e as Map<String, dynamic>))
-        .toList();
+  /// Fill missing item images from `item_types` (by type id or name).
+  Future<List<StockSheetItem>> _hydrateItemImages(
+    List<StockSheetItem> items,
+  ) async {
+    if (items.isEmpty) return items;
+    final needsLookup = items.any(
+      (i) => i.typeImageUrl == null || i.typeImageUrl!.trim().isEmpty,
+    );
+    if (!needsLookup) return items;
+
+    final typeImages = await _loadTypeImageIndex();
+    if (typeImages.isEmpty) return items;
+
+    return items.map((item) {
+      final existing = item.typeImageUrl?.trim();
+      if (existing != null && existing.isNotEmpty) return item;
+      final url = typeImages.urlFor(
+        typeId: item.typeId,
+        typeName: item.typeName,
+      );
+      if (url == null) return item;
+      return StockSheetItem(
+        id: item.id,
+        typeId: item.typeId,
+        typeName: item.typeName,
+        typeImageUrl: url,
+        code: item.code,
+        finish: item.finish,
+        qty10ft: item.qty10ft,
+        qty12ft: item.qty12ft,
+        remark: item.remark,
+      );
+    }).toList();
+  }
+
+  Future<_TypeImageIndex> _loadTypeImageIndex() async {
+    final byId = <String, String>{};
+    final byName = <String, String>{};
+    try {
+      final snap = await _itemTypes.get();
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        final url = (data['image_url'] as String?)?.trim();
+        if (url == null || url.isEmpty) continue;
+        byId[doc.id] = url;
+        final name = (data['name'] as String?)?.trim().toLowerCase();
+        if (name != null && name.isNotEmpty) byName[name] = url;
+      }
+    } catch (_) {}
+    return _TypeImageIndex(byId: byId, byName: byName);
+  }
+
+  /// Resolve image URLs for stock entries (entry → item → item type).
+  Future<List<StockEntryV2>> enrichEntryImages(List<StockEntryV2> entries) async {
+    if (entries.isEmpty) return entries;
+
+    final itemIds =
+        entries.map((e) => e.itemId).where((id) => id.isNotEmpty).toSet();
+    final imageByItemId = <String, String>{};
+
+    await Future.wait(
+      itemIds.map((id) async {
+        try {
+          final item = await getStockSheetItemById(id);
+          final url = item?.typeImageUrl?.trim();
+          if (url != null && url.isNotEmpty) imageByItemId[id] = url;
+        } catch (_) {}
+      }),
+    );
+
+    final stillMissing = entries.any((e) {
+      final fromEntry = e.typeImageUrl?.trim();
+      if (fromEntry != null && fromEntry.isNotEmpty) return false;
+      return imageByItemId[e.itemId] == null;
+    });
+
+    _TypeImageIndex? typeImages;
+    if (stillMissing) {
+      typeImages = await _loadTypeImageIndex();
+    }
+
+    return entries.map((e) {
+      final fromEntry = e.typeImageUrl?.trim();
+      if (fromEntry != null && fromEntry.isNotEmpty) return e;
+
+      final fromItem = imageByItemId[e.itemId];
+      if (fromItem != null && fromItem.isNotEmpty) {
+        return _copyEntryWithImage(e, fromItem);
+      }
+
+      final fromType = typeImages?.urlFor(
+        typeId: e.typeName != null ? _typeDocId(e.typeName!) : null,
+        typeName: e.typeName,
+      );
+      if (fromType != null) return _copyEntryWithImage(e, fromType);
+
+      return e;
+    }).toList();
+  }
+
+  StockEntryV2 _copyEntryWithImage(StockEntryV2 e, String url) {
+    return StockEntryV2(
+      id: e.id,
+      itemId: e.itemId,
+      entryType: e.entryType,
+      delta10ft: e.delta10ft,
+      delta12ft: e.delta12ft,
+      location: e.location,
+      notes: e.notes,
+      createdAt: e.createdAt,
+      typeName: e.typeName,
+      typeImageUrl: url,
+      code: e.code,
+      finish: e.finish,
+      enteredByName: e.enteredByName,
+    );
   }
 
   Future<void> recordStockEntry({
@@ -364,50 +565,101 @@ class ItemsRepository {
       throw ArgumentError('Enter at least one quantity');
     }
 
-    final item = await _client
-        .from('items_v2')
-        .select('qty_10ft, qty_12ft')
-        .eq('id', itemId)
-        .single();
-
-    final current10 = (item['qty_10ft'] as num?)?.toInt() ?? 0;
-    final current12 = (item['qty_12ft'] as num?)?.toInt() ?? 0;
-
-    final sign = entryType == 'in' ? 1 : -1;
-    final next10 = current10 + (sign * delta10ft);
-    final next12 = current12 + (sign * delta12ft);
-    if (next10 < 0 || next12 < 0) {
-      throw Exception('Not enough stock for this operation');
-    }
-
-    await _client.from('items_v2').update({
-      'qty_10ft': next10,
-      'qty_12ft': next12,
-    }).eq('id', itemId);
-
     final enteredByName = await getMyFullName();
+    final itemRef = _itemsV2.doc(itemId);
 
-    await _client.from('stock_entries_v2').insert({
-      'item_id': itemId,
-      'entry_type': entryType,
-      'delta_10ft': delta10ft,
-      'delta_12ft': delta12ft,
-      'entered_by_name': enteredByName,
-      'location': location?.trim().isEmpty == true ? null : location?.trim(),
-      'notes': notes?.trim().isEmpty == true ? null : notes?.trim(),
-      'user_id': _userId!,
+    await _db.runTransaction((tx) async {
+      final itemSnap = await tx.get(itemRef);
+      if (!itemSnap.exists) throw Exception('Item not found');
+      final item = itemSnap.data()!;
+      final current10 = (item['qty_10ft'] as num?)?.toInt() ?? 0;
+      final current12 = (item['qty_12ft'] as num?)?.toInt() ?? 0;
+
+      final sign = entryType == 'in' ? 1 : -1;
+      final next10 = current10 + (sign * delta10ft);
+      final next12 = current12 + (sign * delta12ft);
+      if (next10 < 0 || next12 < 0) {
+        throw Exception('Not enough stock for this operation');
+      }
+
+      // All reads before writes (Firestore transaction rule).
+      var imageUrl = (item['type_image_url'] as String?)?.trim();
+      if (imageUrl == null || imageUrl.isEmpty) {
+        imageUrl = (item['image_url'] as String?)?.trim();
+      }
+      final typeId = item['type_id'] as String?;
+      final typeName = item['type_name'] as String?;
+      if ((imageUrl == null || imageUrl.isEmpty) &&
+          typeId != null &&
+          typeId.isNotEmpty) {
+        final typeSnap = await tx.get(_itemTypes.doc(typeId));
+        imageUrl = (typeSnap.data()?['image_url'] as String?)?.trim();
+      }
+      if ((imageUrl == null || imageUrl.isEmpty) &&
+          typeName != null &&
+          typeName.trim().isNotEmpty) {
+        final typeSnap = await tx.get(_itemTypes.doc(_typeDocId(typeName)));
+        imageUrl = (typeSnap.data()?['image_url'] as String?)?.trim();
+      }
+
+      final itemUpdate = <String, dynamic>{
+        'qty_10ft': next10,
+        'qty_12ft': next12,
+      };
+      if (imageUrl != null &&
+          imageUrl.isNotEmpty &&
+          ((item['type_image_url'] as String?)?.trim().isEmpty ?? true)) {
+        itemUpdate['type_image_url'] = imageUrl;
+      }
+      tx.update(itemRef, itemUpdate);
+
+      final entryRef = _stockEntriesV2.doc();
+      tx.set(entryRef, {
+        'item_id': itemId,
+        'entry_type': entryType,
+        'delta_10ft': delta10ft,
+        'delta_12ft': delta12ft,
+        'entered_by_name': enteredByName,
+        'location': location?.trim().isEmpty == true ? null : location?.trim(),
+        'notes': notes?.trim().isEmpty == true ? null : notes?.trim(),
+        'user_id': _userId!,
+        'type_name': item['type_name'],
+        'type_image_url':
+            (imageUrl == null || imageUrl.isEmpty) ? null : imageUrl,
+        'code': item['code'],
+        'finish': item['finish'],
+        'created_at': FieldValue.serverTimestamp(),
+      });
     });
   }
 
   Future<StockSheetItem?> getStockSheetItemById(String itemId) async {
     if (!_isAvailable || _userId == null) return null;
-    final res = await _client
-        .from('items_v2')
-        .select('*, item_types(name, image_url)')
-        .eq('id', itemId)
-        .maybeSingle();
-    if (res == null) return null;
-    return StockSheetItem.fromJson(Map<String, dynamic>.from(res));
+    final snap = await _itemsV2.doc(itemId).get();
+    if (!snap.exists) return null;
+    var item = StockSheetItem.fromJson(_withId(snap));
+
+    // Fall back to item_types.image_url when the item doc has no denormalized URL.
+    final missing =
+        item.typeImageUrl == null || item.typeImageUrl!.trim().isEmpty;
+    if (missing && item.typeId.isNotEmpty) {
+      final typeSnap = await _itemTypes.doc(item.typeId).get();
+      final typeUrl = typeSnap.data()?['image_url'] as String?;
+      if (typeUrl != null && typeUrl.trim().isNotEmpty) {
+        item = StockSheetItem(
+          id: item.id,
+          typeId: item.typeId,
+          typeName: item.typeName,
+          typeImageUrl: typeUrl.trim(),
+          code: item.code,
+          finish: item.finish,
+          qty10ft: item.qty10ft,
+          qty12ft: item.qty12ft,
+          remark: item.remark,
+        );
+      }
+    }
+    return item;
   }
 
   Future<List<StockEntryV2>> getStockEntries({
@@ -417,39 +669,154 @@ class ItemsRepository {
     String? itemId,
   }) async {
     if (!_isAvailable || _userId == null) return [];
-    var q = _client
-        .from('stock_entries_v2')
-        .select(
-          'id, item_id, entry_type, delta_10ft, delta_12ft, location, notes, created_at, items_v2(code, finish, item_types(name))',
+
+    try {
+      // Avoid composite indexes: use single-field queries, then filter/sort in memory.
+      QuerySnapshot<Map<String, dynamic>> res;
+      if (itemId != null && itemId.isNotEmpty) {
+        res = await _withTimeout(
+          _stockEntriesV2.where('item_id', isEqualTo: itemId).get(),
+          'Load entries',
         );
+      } else if (entryType != null &&
+          entryType.isNotEmpty &&
+          since == null) {
+        res = await _withTimeout(
+          _stockEntriesV2.where('entry_type', isEqualTo: entryType).get(),
+          'Load entries',
+        );
+      } else {
+        final fetchLimit =
+            (since != null || (entryType != null && entryType.isNotEmpty))
+                ? 500
+                : limit;
+        res = await _withTimeout(
+          _stockEntriesV2
+              .orderBy('created_at', descending: true)
+              .limit(fetchLimit)
+              .get(),
+          'Load entries',
+        );
+      }
 
-    if (entryType != null && entryType.isNotEmpty) {
-      q = q.eq('entry_type', entryType);
-    }
-    if (itemId != null && itemId.isNotEmpty) {
-      q = q.eq('item_id', itemId);
-    }
-    if (since != null) {
-      q = q.gte('created_at', since.toUtc().toIso8601String());
-    }
+      var entries =
+          res.docs.map((d) => StockEntryV2.fromJson(_withId(d))).toList();
 
-    final res = await q.order('created_at', ascending: false).limit(limit);
-    return (res as List)
-        .map((e) => StockEntryV2.fromJson(e as Map<String, dynamic>))
-        .toList();
+      if (entryType != null && entryType.isNotEmpty) {
+        entries = entries.where((e) => e.entryType == entryType).toList();
+      }
+      if (since != null) {
+        entries = entries
+            .where((e) => !e.createdAt.isBefore(since.toUtc()))
+            .toList();
+      }
+
+      entries.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      if (entries.length > limit) {
+        entries = entries.take(limit).toList();
+      }
+      return entries;
+    } catch (e) {
+      throw _mapFirestoreError(e, 'Load entries');
+    }
   }
 
   Future<StockEntryV2?> getStockEntryById(String entryId) async {
     if (!_isAvailable || _userId == null) return null;
-    final res = await _client
-        .from('stock_entries_v2')
-        .select(
-          'id, item_id, entry_type, delta_10ft, delta_12ft, location, notes, created_at, entered_by_name, items_v2(code, finish, item_types(name, image_url))',
-        )
-        .eq('id', entryId)
-        .maybeSingle();
-    if (res == null) return null;
-    return StockEntryV2.fromJson(Map<String, dynamic>.from(res));
+    final snap = await _stockEntriesV2.doc(entryId).get();
+    if (!snap.exists) return null;
+    var entry = StockEntryV2.fromJson(_withId(snap));
+
+    // Older entries may lack denormalized image — pull from the item.
+    final imageMissing =
+        entry.typeImageUrl == null || entry.typeImageUrl!.trim().isEmpty;
+    if (imageMissing && entry.itemId.isNotEmpty) {
+      final item = await getStockSheetItemById(entry.itemId);
+      if (item != null &&
+          item.typeImageUrl != null &&
+          item.typeImageUrl!.trim().isNotEmpty) {
+        entry = StockEntryV2(
+          id: entry.id,
+          itemId: entry.itemId,
+          entryType: entry.entryType,
+          delta10ft: entry.delta10ft,
+          delta12ft: entry.delta12ft,
+          location: entry.location,
+          notes: entry.notes,
+          createdAt: entry.createdAt,
+          typeName: entry.typeName ?? item.typeName,
+          typeImageUrl: item.typeImageUrl,
+          code: entry.code ?? item.code,
+          finish: entry.finish ?? item.finish,
+          enteredByName: entry.enteredByName,
+        );
+      }
+    }
+    return entry;
+  }
+
+  int _signFor(String entryType) => entryType == 'in' ? 1 : -1;
+
+  /// Opening stock before any logged entries = current − sum(signed deltas).
+  /// (Initial qty on the item is treated as opening balance.)
+  ({int q10, int q12}) _openingBalance({
+    required int current10,
+    required int current12,
+    required List<StockEntryV2> entries,
+  }) {
+    var sum10 = 0;
+    var sum12 = 0;
+    for (final e in entries) {
+      final s = _signFor(e.entryType);
+      sum10 += s * e.delta10ft;
+      sum12 += s * e.delta12ft;
+    }
+    return (q10: current10 - sum10, q12: current12 - sum12);
+  }
+
+  /// Replays every entry in time order. Fails if stock would go negative
+  /// at any step — not only at the end.
+  ({int q10, int q12}) _replayHistory({
+    required int opening10,
+    required int opening12,
+    required List<StockEntryV2> chronological,
+    String? editEntryId,
+    int? newDelta10,
+    int? newDelta12,
+    String? deleteEntryId,
+  }) {
+    var q10 = opening10;
+    var q12 = opening12;
+
+    for (final e in chronological) {
+      if (deleteEntryId != null && e.id == deleteEntryId) continue;
+
+      final d10 =
+          (editEntryId != null && e.id == editEntryId) ? newDelta10! : e.delta10ft;
+      final d12 =
+          (editEntryId != null && e.id == editEntryId) ? newDelta12! : e.delta12ft;
+      final s = _signFor(e.entryType);
+      q10 += s * d10;
+      q12 += s * d12;
+
+      if (q10 < 0 || q12 < 0) {
+        throw Exception(
+          'Invalid change: stock would have gone negative at some point '
+          'in history. Add a new stock in/out to correct instead.',
+        );
+      }
+    }
+    return (q10: q10, q12: q12);
+  }
+
+  Future<List<StockEntryV2>> _entriesForItemChronological(String itemId) async {
+    final entries = await getStockEntries(limit: 2000, itemId: itemId);
+    entries.sort((a, b) {
+      final byTime = a.createdAt.compareTo(b.createdAt);
+      if (byTime != 0) return byTime;
+      return a.id.compareTo(b.id);
+    });
+    return entries;
   }
 
   Future<void> updateStockEntry({
@@ -460,72 +827,159 @@ class ItemsRepository {
     String? newNotes,
   }) async {
     if (!_isAvailable || _userId == null) throw _notConfigured();
-    final existing = await getStockEntryById(entryId);
-    if (existing == null) throw Exception('Entry not found');
-
+    if (newDelta10ft < 0 || newDelta12ft < 0) {
+      throw ArgumentError('Quantities cannot be negative');
+    }
     if (newDelta10ft == 0 && newDelta12ft == 0) {
       throw ArgumentError('Enter at least one quantity');
     }
 
-    final item = await _client
-        .from('items_v2')
-        .select('qty_10ft, qty_12ft')
-        .eq('id', existing.itemId)
-        .single();
+    final enteredByName = await getMyFullName();
+    final existing = await getStockEntryById(entryId);
+    if (existing == null) throw Exception('Entry not found');
 
-    final current10 = (item['qty_10ft'] as num?)?.toInt() ?? 0;
-    final current12 = (item['qty_12ft'] as num?)?.toInt() ?? 0;
+    final item = await getStockSheetItemById(existing.itemId);
+    if (item == null) throw Exception('Item not found');
 
-    final sign = existing.entryType == 'in' ? 1 : -1;
-    final diff10 = newDelta10ft - existing.delta10ft;
-    final diff12 = newDelta12ft - existing.delta12ft;
+    final chronological =
+        await _entriesForItemChronological(existing.itemId);
+    final opening = _openingBalance(
+      current10: item.qty10ft,
+      current12: item.qty12ft,
+      entries: chronological,
+    );
+    final finalQty = _replayHistory(
+      opening10: opening.q10,
+      opening12: opening.q12,
+      chronological: chronological,
+      editEntryId: entryId,
+      newDelta10: newDelta10ft,
+      newDelta12: newDelta12ft,
+    );
 
-    final next10 = current10 + (sign * diff10);
-    final next12 = current12 + (sign * diff12);
-    if (next10 < 0 || next12 < 0) {
-      throw Exception('Not enough stock for this operation');
+    try {
+      await _withTimeout(
+        _db.runTransaction((tx) async {
+          final entryRef = _stockEntriesV2.doc(entryId);
+          final itemRef = _itemsV2.doc(existing.itemId);
+          final entrySnap = await tx.get(entryRef);
+          final itemSnap = await tx.get(itemRef);
+          if (!entrySnap.exists) throw Exception('Entry not found');
+          if (!itemSnap.exists) throw Exception('Item not found');
+
+          // Guard against concurrent edits of this entry.
+          final live = entrySnap.data()!;
+          final live10 = (live['delta_10ft'] as num?)?.toInt() ?? 0;
+          final live12 = (live['delta_12ft'] as num?)?.toInt() ?? 0;
+          if (live10 != existing.delta10ft || live12 != existing.delta12ft) {
+            throw Exception(
+              'This entry was changed elsewhere. Refresh and try again.',
+            );
+          }
+
+          tx.update(itemRef, {
+            'qty_10ft': finalQty.q10,
+            'qty_12ft': finalQty.q12,
+          });
+          tx.update(entryRef, {
+            'delta_10ft': newDelta10ft,
+            'delta_12ft': newDelta12ft,
+            'location': newLocation?.trim().isEmpty == true
+                ? null
+                : newLocation?.trim(),
+            'notes':
+                newNotes?.trim().isEmpty == true ? null : newNotes?.trim(),
+            'entered_by_name': enteredByName,
+          });
+        }),
+        'Update entry',
+      );
+    } catch (e) {
+      throw _mapFirestoreError(e, 'Update entry');
     }
-
-    await _client.from('items_v2').update({
-      'qty_10ft': next10,
-      'qty_12ft': next12,
-    }).eq('id', existing.itemId);
-
-    await _client.from('stock_entries_v2').update({
-      'delta_10ft': newDelta10ft,
-      'delta_12ft': newDelta12ft,
-      'location': newLocation?.trim().isEmpty == true ? null : newLocation?.trim(),
-      'notes': newNotes?.trim().isEmpty == true ? null : newNotes?.trim(),
-      'entered_by_name': await getMyFullName(),
-    }).eq('id', entryId);
   }
 
   Future<void> deleteStockEntry(String entryId) async {
     if (!_isAvailable || _userId == null) throw _notConfigured();
+
     final existing = await getStockEntryById(entryId);
     if (existing == null) return;
 
-    final item = await _client
-        .from('items_v2')
-        .select('qty_10ft, qty_12ft')
-        .eq('id', existing.itemId)
-        .single();
-
-    final current10 = (item['qty_10ft'] as num?)?.toInt() ?? 0;
-    final current12 = (item['qty_12ft'] as num?)?.toInt() ?? 0;
-
-    final sign = existing.entryType == 'in' ? 1 : -1;
-    final next10 = current10 - (sign * existing.delta10ft);
-    final next12 = current12 - (sign * existing.delta12ft);
-    if (next10 < 0 || next12 < 0) {
-      throw Exception('Cannot delete: would make stock negative');
+    final item = await getStockSheetItemById(existing.itemId);
+    if (item == null) {
+      await _stockEntriesV2.doc(entryId).delete();
+      return;
     }
 
-    await _client.from('items_v2').update({
-      'qty_10ft': next10,
-      'qty_12ft': next12,
-    }).eq('id', existing.itemId);
+    final chronological =
+        await _entriesForItemChronological(existing.itemId);
+    final opening = _openingBalance(
+      current10: item.qty10ft,
+      current12: item.qty12ft,
+      entries: chronological,
+    );
+    final finalQty = _replayHistory(
+      opening10: opening.q10,
+      opening12: opening.q12,
+      chronological: chronological,
+      deleteEntryId: entryId,
+    );
 
-    await _client.from('stock_entries_v2').delete().eq('id', entryId);
+    try {
+      await _withTimeout(
+        _db.runTransaction((tx) async {
+          final entryRef = _stockEntriesV2.doc(entryId);
+          final itemRef = _itemsV2.doc(existing.itemId);
+          final entrySnap = await tx.get(entryRef);
+          final itemSnap = await tx.get(itemRef);
+          if (!entrySnap.exists) return;
+          if (!itemSnap.exists) {
+            tx.delete(entryRef);
+            return;
+          }
+
+          final live = entrySnap.data()!;
+          final live10 = (live['delta_10ft'] as num?)?.toInt() ?? 0;
+          final live12 = (live['delta_12ft'] as num?)?.toInt() ?? 0;
+          if (live10 != existing.delta10ft || live12 != existing.delta12ft) {
+            throw Exception(
+              'This entry was changed elsewhere. Refresh and try again.',
+            );
+          }
+
+          tx.update(itemRef, {
+            'qty_10ft': finalQty.q10,
+            'qty_12ft': finalQty.q12,
+          });
+          tx.delete(entryRef);
+        }),
+        'Delete entry',
+      );
+    } catch (e) {
+      throw _mapFirestoreError(e, 'Delete entry');
+    }
+  }
+}
+
+class _TypeImageIndex {
+  final Map<String, String> byId;
+  final Map<String, String> byName;
+
+  const _TypeImageIndex({required this.byId, required this.byName});
+
+  bool get isEmpty => byId.isEmpty && byName.isEmpty;
+
+  String? urlFor({String? typeId, String? typeName}) {
+    final id = typeId?.trim();
+    if (id != null && id.isNotEmpty) {
+      final fromId = byId[id];
+      if (fromId != null && fromId.isNotEmpty) return fromId;
+    }
+    final name = typeName?.trim().toLowerCase();
+    if (name != null && name.isNotEmpty) {
+      final fromName = byName[name];
+      if (fromName != null && fromName.isNotEmpty) return fromName;
+    }
+    return null;
   }
 }

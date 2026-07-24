@@ -2,7 +2,7 @@ class AppConstants {
   // App Info
   static const String appName = 'Kooba';
   static const String appTagline = 'Stock Management';
-  
+
   // Routes
   static const String splashRoute = '/';
   static const String loginRoute = '/login';
@@ -32,8 +32,7 @@ class AppConstants {
   static const String addItemCategoryRoute = '/add-item-category';
   static const String stockUsageRoute = '/stock-usage';
   static const String stockHistoryRoute = '/stock-history';
-  
+
   // Stock Constants
   static const int lowStockThreshold = 10;
 }
-

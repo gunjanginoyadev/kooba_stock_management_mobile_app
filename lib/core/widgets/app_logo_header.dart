@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
-import '../theme/app_theme.dart';
-import '../constants/app_constants.dart';
+import 'package:google_fonts/google_fonts.dart';
 
-/// Reusable logo + title + subtitle header used in auth screens.
+import '../constants/app_constants.dart';
+import '../theme/app_theme.dart';
+
 class LogoHeader extends StatelessWidget {
   final String? title;
   final String? subtitle;
@@ -20,37 +21,36 @@ class LogoHeader extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        const SizedBox(height: 24),
+        const SizedBox(height: 12),
         Container(
-          width: 96,
-          height: 96,
+          width: 88,
+          height: 88,
           decoration: BoxDecoration(
             color: AppTheme.primaryBlue,
             borderRadius: BorderRadius.circular(28),
             boxShadow: [
               BoxShadow(
-                color: AppTheme.primaryBlue.withOpacity(0.4),
-                blurRadius: 24,
-                spreadRadius: 0,
-                offset: const Offset(0, 16),
+                color: AppTheme.primaryBlue.withValues(alpha: 0.28),
+                blurRadius: 28,
+                offset: const Offset(0, 14),
               ),
             ],
           ),
           child: const Icon(
             Icons.inventory_2_rounded,
-            size: 52,
+            size: 44,
             color: Colors.white,
           ),
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 22),
         Text(
           resolvedTitle,
           textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontSize: 30,
+          style: GoogleFonts.sora(
+            fontSize: 28,
             fontWeight: FontWeight.w700,
             color: AppTheme.textPrimary,
-            letterSpacing: 0.2,
+            letterSpacing: -0.8,
           ),
         ),
         if (subtitle != null && subtitle!.isNotEmpty) ...[
@@ -58,8 +58,9 @@ class LogoHeader extends StatelessWidget {
           Text(
             subtitle!,
             textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 14,
+            style: GoogleFonts.dmSans(
+              fontSize: 15,
+              height: 1.4,
               color: AppTheme.textSecondary,
             ),
           ),
@@ -68,5 +69,3 @@ class LogoHeader extends StatelessWidget {
     );
   }
 }
-
-

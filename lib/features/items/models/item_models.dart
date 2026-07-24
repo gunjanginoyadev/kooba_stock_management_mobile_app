@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 /// Category for "special" (category-based) items.
 class ItemCategory {
   final String id;
@@ -118,15 +120,16 @@ class StockSheetItem {
         '';
     final typeImageUrl =
         (json['type_image_url'] as String?) ??
+        (json['image_url'] as String?) ??
         (joinedType is Map ? joinedType['image_url'] as String? : null);
 
     return StockSheetItem(
-      id: json['id'] as String,
-      typeId: json['type_id'] as String,
+      id: json['id'] as String? ?? '',
+      typeId: json['type_id'] as String? ?? '',
       typeName: typeName,
       typeImageUrl: typeImageUrl,
-      code: json['code'] as String,
-      finish: json['finish'] as String,
+      code: json['code'] as String? ?? '',
+      finish: json['finish'] as String? ?? '',
       qty10ft: (json['qty_10ft'] as num?)?.toInt() ?? 0,
       qty12ft: (json['qty_12ft'] as num?)?.toInt() ?? 0,
       remark: json['remark'] as String?,
@@ -179,6 +182,16 @@ class StockEntryV2 {
   factory StockEntryV2.fromJson(Map<String, dynamic> json) {
     final joinedItem = json['items_v2'];
     final type = joinedItem is Map ? joinedItem['item_types'] : null;
+
+    DateTime createdAt;
+    final rawCreated = json['created_at'];
+    if (rawCreated is Timestamp) {
+      createdAt = rawCreated.toDate();
+    } else {
+      createdAt =
+          DateTime.tryParse(rawCreated?.toString() ?? '') ?? DateTime.now();
+    }
+
     return StockEntryV2(
       id: json['id'] as String,
       itemId: json['item_id'] as String,
@@ -187,12 +200,16 @@ class StockEntryV2 {
       delta12ft: (json['delta_12ft'] as num?)?.toInt() ?? 0,
       location: json['location'] as String?,
       notes: json['notes'] as String?,
-      createdAt:
-          DateTime.tryParse(json['created_at']?.toString() ?? '') ?? DateTime.now(),
-      typeName: type is Map ? type['name'] as String? : null,
-      typeImageUrl: type is Map ? type['image_url'] as String? : null,
-      code: joinedItem is Map ? joinedItem['code'] as String? : null,
-      finish: joinedItem is Map ? joinedItem['finish'] as String? : null,
+      createdAt: createdAt,
+      typeName: (json['type_name'] as String?) ??
+          (type is Map ? type['name'] as String? : null),
+      typeImageUrl: (json['type_image_url'] as String?) ??
+          (json['image_url'] as String?) ??
+          (type is Map ? type['image_url'] as String? : null),
+      code: (json['code'] as String?) ??
+          (joinedItem is Map ? joinedItem['code'] as String? : null),
+      finish: (json['finish'] as String?) ??
+          (joinedItem is Map ? joinedItem['finish'] as String? : null),
       enteredByName: json['entered_by_name'] as String?,
     );
   }

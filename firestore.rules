@@ -1,0 +1,41 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Matches previous Supabase v2 RLS: any signed-in user can read/write stock data.
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    match /profiles/{userId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    match /item_types/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /items_v2/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /stock_entries_v2/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Legacy collections (owner-only).
+    match /item_categories/{docId} {
+      allow create: if isSignedIn()
+        && request.resource.data.user_id == request.auth.uid;
+      allow read, update, delete: if isSignedIn()
+        && resource.data.user_id == request.auth.uid;
+    }
+
+    match /items/{docId} {
+      allow create: if isSignedIn()
+        && request.resource.data.user_id == request.auth.uid;
+      allow read, update, delete: if isSignedIn()
+        && resource.data.user_id == request.auth.uid;
+    }
+  }
+}
